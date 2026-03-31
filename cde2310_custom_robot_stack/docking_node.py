@@ -24,6 +24,9 @@ import geometry_msgs.msg # Uses geometry_msgs.msg.Twist
 
 from std_msgs.msg import String, Bool
 
+from ament_index_python.packages import get_package_share_directory
+import os
+
 
 # from r2_moverrotate
 def euler_from_quaternion(x, y, z, w):
@@ -74,7 +77,9 @@ class ArucoPose(Node):
 
         # fixed settings 
         self.topic = "/image_raw/compressed"
-        self.calib_file = "camera_calib_640x480.npz" # to get camMatrix & distCoeffs for pose estimation
+        #self.calib_file = "camera_calib_640x480.npz" # to get camMatrix & distCoeffs for pose estimation
+        pkg_share = get_package_share_directory('cde2310_custom_robot_stack')
+        self.calib_file = os.path.join(pkg_share, 'config', 'camera_calib_640x480.npz')
         self.marker_length_m = 0.04
         self.target_id = 23
 
