@@ -2,7 +2,7 @@ from setuptools import setup
 from glob import glob
 import os
 
-package_name = 'cde2310_robot_stack'
+package_name = 'cde2310_custom_robot_stack'
 
 setup(
     name=package_name,
@@ -19,16 +19,16 @@ setup(
     zip_safe=True,
     maintainer='Jitisha Arora',
     maintainer_email='jitisha.arora19@gmail.com',
-    description='CDE2310 final project robot stack',
+    description='CDE2310 final project custom robot stack',
     license='Apache License 2.0',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'frontier_node = cde2310_robot_stack.frontier_node:main',
-            'docking_node = cde2310_robot_stack.docking_node:main',
-            'marker_watcher_node = cde2310_robot_stack.marker_watcher_node:main',
-            'supervisor_node = cde2310_robot_stack.supervisor_node:main',
-            'launching_node = cde2310_robot_stack.launching_node:main',
+            'frontier_node = cde2310_custom_robot_stack.frontier_node:main',
+            'docking_node = cde2310_custom_robot_stack.docking_node:main',
+            'marker_watcher_node = cde2310_custom_robot_stack.marker_watcher_node:main',
+            'supervisor_node = cde2310_custom_robot_stack.supervisor_node:main',
+            'launching_node = cde2310_custom_robot_stack.launching_node:main',
         ],
     },
 )
