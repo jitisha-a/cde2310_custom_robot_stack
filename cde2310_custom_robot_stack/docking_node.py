@@ -580,8 +580,8 @@ class ArucoPose(Node):
     def cb(self, msg: CompressedImage):
 
         if self.current_mode != 'DOCK':
-            self.stop_motion()
             return
+            
         frame = self.decode_compressed(msg)
         if frame is None:
             self.get_logger().warn("Decode failed (frame is None). Skipping.")
