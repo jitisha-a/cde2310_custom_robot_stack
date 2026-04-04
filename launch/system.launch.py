@@ -26,9 +26,4 @@ def generate_launch_description():
             executable='docking_node',
             output='screen'
         ),
-        Node(
-            package='cde2310_custom_robot_stack',
-            executable='launching_node',
-            output='screen'
-        ),
     ])
