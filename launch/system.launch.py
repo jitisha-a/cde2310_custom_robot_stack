@@ -13,7 +13,12 @@ def generate_launch_description():
         ),
         Node(
             package='cde2310_custom_robot_stack',
-            executable='marker_watcher_node',
+            executable='marker_mapper_node',
+            output='screen'
+        ),
+        Node(
+            package='cde2310_custom_robot_stack',
+            executable='approach_nav_node',
             output='screen'
         ),
         Node(
