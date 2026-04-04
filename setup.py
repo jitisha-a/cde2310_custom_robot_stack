@@ -26,7 +26,6 @@ setup(
         'console_scripts': [
             'frontier_node = cde2310_custom_robot_stack.frontier_node:main',
             'docking_node = cde2310_custom_robot_stack.docking_node:main',
-            'marker_watcher_node = cde2310_custom_robot_stack.marker_watcher_node:main',
             'supervisor_node = cde2310_custom_robot_stack.supervisor_node:main',
             'launcher_pi_node = cde2310_custom_robot_stack.launcher_pi_node:main',
             'marker_mapper_node = cde2310_custom_robot_stack.marker_mapper_node:main',
