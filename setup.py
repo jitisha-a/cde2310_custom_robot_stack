@@ -28,7 +28,7 @@ setup(
             'docking_node = cde2310_custom_robot_stack.docking_node:main',
             'marker_watcher_node = cde2310_custom_robot_stack.marker_watcher_node:main',
             'supervisor_node = cde2310_custom_robot_stack.supervisor_node:main',
-            'launching_node = cde2310_custom_robot_stack.launching_node:main',
+            'launcher_pi_node = cde2310_custom_robot_stack.launcher_pi_node:main',
         ],
     },
 )
