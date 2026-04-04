@@ -5,19 +5,18 @@ import threading
 
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import String, Bool
+from std_msgs.msg import Bool
 
 import RPi.GPIO as GPIO
 
 
-class LaunchingNode(Node):
+class LauncherHwNode(Node):
     def __init__(self):
-        super().__init__('launching_node')
+        super().__init__('launcher_hw_node')
 
         # -------------------------
-        # ROS state
+        # Launch state
         # -------------------------
-        self.current_mode = 'IDLE'
         self.has_launched = False
         self.is_launching = False
         self.abort_requested = False
@@ -26,13 +25,13 @@ class LaunchingNode(Node):
         # -------------------------
         # GPIO pin config (BCM)
         # -------------------------
-        self.SERVO_PIN = 12     # keep servo on BCM 12
-        self.ENA = 18           # motor PWM pin, changed from 12 to avoid conflict
-        self.IN1 = 23           # motor direction pin 1
-        self.IN2 = 24           # motor direction pin 2
+        self.SERVO_PIN = 12
+        self.ENA = 18
+        self.IN1 = 23
+        self.IN2 = 24
 
-        self.MOTOR_PWM_FREQ = 1000   # 1 kHz
-        self.SERVO_PWM_FREQ = 50     # standard servo PWM
+        self.MOTOR_PWM_FREQ = 1000
+        self.SERVO_PWM_FREQ = 50
 
         # -------------------------
         # Launch sequence settings
@@ -40,22 +39,22 @@ class LaunchingNode(Node):
         self.SERVO_HOLD_ANGLE = 120
         self.SERVO_LAUNCH_ANGLE = 180
 
-        self.RAMP_STEP = 10                 # percent per step
-        self.RAMP_STEP_DELAY = 0.2          # seconds between steps
-        self.MOTOR_SPINUP_WAIT = 3.0        # wait after reaching 100%
-        self.DELAY_AFTER_FIRST = 2.0        # second launch after 2 sec
-        self.DELAY_AFTER_SECOND = 8.0       # third launch after 8 sec
+        self.RAMP_STEP = 10
+        self.RAMP_STEP_DELAY = 0.2
+        self.MOTOR_SPINUP_WAIT = 3.0
+        self.DELAY_AFTER_FIRST = 2.0
+        self.DELAY_AFTER_SECOND = 8.0
 
-        self.SERVO_MOVE_TIME = 0.5          # time to let servo reach angle
-        self.SERVO_RETURN_SETTLE = 0.2      # short settle after reset
+        self.SERVO_MOVE_TIME = 0.5
+        self.SERVO_RETURN_SETTLE = 0.2
 
         # -------------------------
         # ROS interfaces
         # -------------------------
-        self.mode_sub = self.create_subscription(
-            String,
-            '/robot_mode',
-            self.mode_callback,
+        self.launch_cmd_sub = self.create_subscription(
+            Bool,
+            '/launch_cmd',
+            self.launch_cmd_callback,
             10
         )
 
@@ -81,33 +80,27 @@ class LaunchingNode(Node):
         self.motor_stop()
         self.set_servo_angle(self.SERVO_HOLD_ANGLE)
 
-        self.get_logger().info('Launching node started.')
+        self.get_logger().info('Launcher HW node started on Pi.')
 
     # =========================
-    # ROS callbacks
+    # ROS callback
     # =========================
-    def mode_callback(self, msg: String):
-        new_mode = msg.data
+    def launch_cmd_callback(self, msg: Bool):
+        if not msg.data:
+            return
 
-        if new_mode != self.current_mode:
-            self.get_logger().info(f'Mode changed: {self.current_mode} -> {new_mode}')
+        if self.is_launching:
+            self.get_logger().warn('Launch already in progress, ignoring new command.')
+            return
 
-        self.current_mode = new_mode
+        if self.has_launched:
+            self.get_logger().warn('Launch sequence already completed once, ignoring command.')
+            return
 
-        # Reset one-shot flag when leaving LAUNCH
-        if self.current_mode != 'LAUNCH':
-            self.has_launched = False
-
-            # Optional abort if mode changes away during launch
-            if self.is_launching:
-                self.get_logger().warn('Mode left LAUNCH during launch sequence. Abort requested.')
-                self.abort_requested = True
-
-        # Start launch once when entering LAUNCH
-        if self.current_mode == 'LAUNCH' and not self.has_launched and not self.is_launching:
-            self.abort_requested = False
-            self.launch_thread = threading.Thread(target=self.run_launch_sequence, daemon=True)
-            self.launch_thread.start()
+        self.get_logger().info('Received /launch_cmd = True. Starting launch sequence.')
+        self.abort_requested = False
+        self.launch_thread = threading.Thread(target=self.run_launch_sequence, daemon=True)
+        self.launch_thread.start()
 
     # =========================
     # Motor helpers
@@ -175,7 +168,7 @@ class LaunchingNode(Node):
         self.is_launching = True
 
         try:
-            self.get_logger().info('LAUNCH mode active. Starting launcher sequence.')
+            self.get_logger().info('Starting launcher sequence.')
 
             # 1. Power on motor in reverse direction
             self.motor_reverse()
@@ -230,10 +223,7 @@ class LaunchingNode(Node):
             self.get_logger().info('Motor powered off. Launch sequence complete.')
 
             # 8. Publish done
-            done = Bool()
-            done.data = True
-            self.launch_done_pub.publish(done)
-
+            self.launch_done_pub.publish(Bool(data=True))
             self.has_launched = True
             self.get_logger().info('Published /launch_done = True')
 
@@ -261,7 +251,7 @@ class LaunchingNode(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = LaunchingNode()
+    node = LauncherHwNode()
 
     try:
         rclpy.spin(node)
