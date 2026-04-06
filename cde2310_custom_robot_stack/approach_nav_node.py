@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 
-import math
-
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
@@ -24,7 +22,6 @@ class ApproachNavNode(Node):
         self.mode_sub = self.create_subscription(
             String, '/robot_mode', self.mode_callback, 10
         )
-
         self.goal_sub = self.create_subscription(
             PoseStamped, '/coarse_dock_goal', self.goal_callback, 10
         )
@@ -32,7 +29,6 @@ class ApproachNavNode(Node):
         self.approach_done_pub = self.create_publisher(Bool, '/approach_done', 10)
 
         self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
-
         self.timer = self.create_timer(0.2, self.loop)
 
         self.get_logger().info('Approach nav node started.')
