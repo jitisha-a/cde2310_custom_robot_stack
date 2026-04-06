@@ -27,9 +27,12 @@ setup(
             'frontier_node = cde2310_custom_robot_stack.frontier_node:main',
             'docking_node = cde2310_custom_robot_stack.docking_node:main',
             'supervisor_node = cde2310_custom_robot_stack.supervisor_node:main',
-            'launcher_pi_node = cde2310_custom_robot_stack.launcher_pi_node:main',
             'marker_mapper_node = cde2310_custom_robot_stack.marker_mapper_node:main',
             'approach_nav_node = cde2310_custom_robot_stack.approach_nav_node:main',
+            'station_id_node = cde2310_custom_robot_stack.station_id_node:main',
+            'timing_gauge_node = cde2310_custom_robot_stack.timing_gauge_node:main',
+            'stationary_launcher_hw_node = cde2310_custom_robot_stack.stationary_launcher_hw_node:main',
+            'dynamic_launcher_hw_node = cde2310_custom_robot_stack.dynamic_launcher_hw_node:main',
         ],
     },
 )
