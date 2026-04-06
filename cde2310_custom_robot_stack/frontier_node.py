@@ -321,8 +321,11 @@ class FrontierExplorer(Node):
 
             success = self.send_goal(wx, wy)
             if not success:
-                self.get_logger().warn("Nav2 could not reach goal. Adding to failed list.")
-                self.failed_goals.add(target_cell)
+                if self.current_mode == 'EXPLORE':
+                    self.get_logger().warn("Nav2 could not reach goal. Adding to failed list.")
+                    self.failed_goals.add(target_cell)
+                else:
+                    self.get_logger().info("Frontier goal interrupted by mode switch. Not marking failed.")
             else:
                 self.get_logger().info("Goal reached successfully.")
 
