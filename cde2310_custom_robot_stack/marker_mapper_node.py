@@ -12,7 +12,7 @@ from rclpy.duration import Duration
 
 from sensor_msgs.msg import CompressedImage
 from geometry_msgs.msg import PoseStamped
-from std_msgs.msg import String, Bool
+from std_msgs.msg import String, Bool, Int32
 
 import tf2_ros
 
@@ -41,22 +41,16 @@ class MarkerMapperNode(Node):
         super().__init__('marker_mapper_node')
 
         self.current_mode = 'EXPLORE'
-        self.target_id = 23
+        self.station_marker_ids = [23, 25]
         self.marker_length_m = 0.04
-
-        # How many stable detections before we trust coarse goal
         self.required_samples = 5
         self.goal_history = deque(maxlen=self.required_samples)
-
-        # coarse standoff distance in front of marker
+        self.current_candidate_id = None
         self.standoff_distance_m = 0.50
 
-        # Approx camera pose relative to base_link
-        # TUNE THESE FOR YOUR ROBOT
         self.camera_x_offset_m = 0.07
         self.camera_y_offset_m = 0.00
 
-        # Package-share path to calibration file
         pkg_share = get_package_share_directory('cde2310_custom_robot_stack')
         self.calib_file = os.path.join(pkg_share, 'config', 'camera_calib_640x480.npz')
 
@@ -81,13 +75,13 @@ class MarkerMapperNode(Node):
         self.mode_sub = self.create_subscription(
             String, '/robot_mode', self.mode_callback, 10
         )
-
         self.image_sub = self.create_subscription(
             CompressedImage, '/image_raw/compressed', self.image_callback, 10
         )
 
         self.goal_pub = self.create_publisher(PoseStamped, '/coarse_dock_goal', 10)
         self.goal_ready_pub = self.create_publisher(Bool, '/coarse_goal_ready', 10)
+        self.target_marker_pub = self.create_publisher(Int32, '/target_station_marker_id', 10)
 
         self.get_logger().info('Marker mapper node started.')
 
@@ -95,26 +89,35 @@ class MarkerMapperNode(Node):
         self.current_mode = msg.data
         if self.current_mode != 'EXPLORE':
             self.goal_history.clear()
+            self.current_candidate_id = None
 
     def decode_compressed(self, msg):
         arr = np.frombuffer(msg.data, dtype=np.uint8)
         return cv2.imdecode(arr, cv2.IMREAD_COLOR)
 
-    def detect_target_pose(self, frame):
+    def detect_station_marker_pose(self, frame):
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         corners_list, ids, _ = cv2.aruco.detectMarkers(
             gray, self.dictionary, parameters=self.params
         )
 
         if ids is None or len(ids) == 0:
-            return False, None, None
+            return False, None, None, None
 
         ids_flat = ids.flatten().tolist()
-        if self.target_id not in ids_flat:
-            return False, None, None
 
-        idx = ids_flat.index(self.target_id)
-        corners = corners_list[idx].reshape(4, 2).astype(np.float32)
+        chosen_id = None
+        chosen_idx = None
+        for sid in self.station_marker_ids:
+            if sid in ids_flat:
+                chosen_id = sid
+                chosen_idx = ids_flat.index(sid)
+                break
+
+        if chosen_id is None:
+            return False, None, None, None
+
+        corners = corners_list[chosen_idx].reshape(4, 2).astype(np.float32)
 
         ok, rvec, tvec = cv2.solvePnP(
             self.objPoints,
@@ -125,9 +128,9 @@ class MarkerMapperNode(Node):
         )
 
         if not ok:
-            return False, None, None
+            return False, None, None, None
 
-        return True, rvec, tvec
+        return True, chosen_id, rvec, tvec
 
     def get_robot_pose_map(self):
         try:
@@ -153,10 +156,16 @@ class MarkerMapperNode(Node):
         if frame is None:
             return
 
-        found, rvec, tvec = self.detect_target_pose(frame)
+        found, marker_id, rvec, tvec = self.detect_station_marker_pose(frame)
         if not found:
-            self.goal_ready_pub.publish(Bool(data=False))
             return
+
+        if self.current_candidate_id is None:
+            self.current_candidate_id = marker_id
+
+        if marker_id != self.current_candidate_id:
+            self.goal_history.clear()
+            self.current_candidate_id = marker_id
 
         robot_pose = self.get_robot_pose_map()
         if robot_pose is None:
@@ -165,24 +174,18 @@ class MarkerMapperNode(Node):
 
         robot_x, robot_y, robot_yaw = robot_pose
 
-        tx = float(tvec[0, 0])   # right is + in your current docking interpretation
-        tz = float(tvec[2, 0])   # forward distance
+        tx = float(tvec[0, 0])
+        tz = float(tvec[2, 0])
 
-        # Approx marker position in base_link frame
-        # base x forward, y left
-        # marker on right => tx > 0 => local y negative
         marker_local_x = self.camera_x_offset_m + tz
         marker_local_y = self.camera_y_offset_m - tx
 
-        # Convert local marker position into map frame
         marker_map_x = robot_x + math.cos(robot_yaw) * marker_local_x - math.sin(robot_yaw) * marker_local_y
         marker_map_y = robot_y + math.sin(robot_yaw) * marker_local_x + math.cos(robot_yaw) * marker_local_y
 
-        # Build a coarse goal that sits standoff_distance away from marker
         vec_x = marker_map_x - robot_x
         vec_y = marker_map_y - robot_y
         dist = math.hypot(vec_x, vec_y)
-
         if dist < 1e-6:
             return
 
@@ -196,13 +199,10 @@ class MarkerMapperNode(Node):
         self.goal_history.append((goal_x, goal_y, goal_yaw))
 
         if len(self.goal_history) < self.required_samples:
-            self.goal_ready_pub.publish(Bool(data=False))
             return
 
         avg_x = float(np.mean([g[0] for g in self.goal_history]))
         avg_y = float(np.mean([g[1] for g in self.goal_history]))
-
-        # Average yaw using sin/cos
         sin_avg = float(np.mean([math.sin(g[2]) for g in self.goal_history]))
         cos_avg = float(np.mean([math.cos(g[2]) for g in self.goal_history]))
         avg_yaw = math.atan2(sin_avg, cos_avg)
@@ -212,15 +212,16 @@ class MarkerMapperNode(Node):
         goal_msg.header.stamp = self.get_clock().now().to_msg()
         goal_msg.pose.position.x = avg_x
         goal_msg.pose.position.y = avg_y
-        goal_msg.pose.position.z = 0.0
         goal_msg.pose.orientation.z = math.sin(avg_yaw / 2.0)
         goal_msg.pose.orientation.w = math.cos(avg_yaw / 2.0)
 
         self.goal_pub.publish(goal_msg)
         self.goal_ready_pub.publish(Bool(data=True))
+        self.target_marker_pub.publish(Int32(data=self.current_candidate_id))
 
         self.get_logger().info(
-            f'Coarse goal ready: x={avg_x:.2f}, y={avg_y:.2f}, yaw={math.degrees(avg_yaw):.1f} deg'
+            f'Coarse goal ready for station marker {self.current_candidate_id}: '
+            f'x={avg_x:.2f}, y={avg_y:.2f}'
         )
 
 
