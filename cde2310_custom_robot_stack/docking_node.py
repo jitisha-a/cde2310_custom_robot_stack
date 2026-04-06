@@ -22,7 +22,7 @@ import cmath
 
 import geometry_msgs.msg # Uses geometry_msgs.msg.Twist
 
-from std_msgs.msg import String, Bool
+from std_msgs.msg import String, Bool, Int32
 
 from ament_index_python.packages import get_package_share_directory
 import os
@@ -167,11 +167,20 @@ class ArucoPose(Node):
         self.detect_count = 0
         self.pose_history = deque(maxlen=self.pose_window_size) # stores our recent pose frames
 
-        self.current_mode = 'IDLE'
+        self.current_mode = 'EXPLORE'
+        self.done_published = False
+        
         self.mode_sub = self.create_subscription(
             String,
             '/robot_mode',
             self.mode_callback,
+            10
+        )
+
+        self.target_marker_sub = self.create_subscription(
+            Int32,
+            '/target_station_marker_id',
+            self.target_marker_callback,
             10
         )
         
@@ -222,9 +231,24 @@ class ArucoPose(Node):
         self.odom_ready = True
 
     def mode_callback(self, msg):
-      self.current_mode = msg.data
+        old_mode = self.current_mode
+        self.current_mode = msg.data
+    
+        if old_mode not in ['DOCK_STATIONARY', 'DOCK_DYNAMIC'] and self.current_mode in ['DOCK_STATIONARY', 'DOCK_DYNAMIC']:
+            self.get_logger().info(f'Entering {self.current_mode}. Resetting docking FSM.')
+            self.state = RobotState.SEARCHING_FOR_ID
+            self.detect_count = 0
+            self.done_published = False
+            self.reset_pose_history()
+            self.turn_active = False
 
+    
+    def target_marker_callback(self, msg):
+        if msg.data in [23, 25]:
+            self.target_id = msg.data
+            self.get_logger().info(f'Docking target marker set to ID {self.target_id}')
 
+    
     ##### PLACEHOLDERS  functions for movement
 
     #to check
@@ -579,7 +603,7 @@ class ArucoPose(Node):
 
     def cb(self, msg: CompressedImage):
 
-        if self.current_mode != 'DOCK':
+        if self.current_mode not in ['DOCK_STATIONARY', 'DOCK_DYNAMIC']:
             return
             
         frame = self.decode_compressed(msg)
@@ -832,10 +856,11 @@ class ArucoPose(Node):
             # ######## STATE: DONE #########
         if self.state == RobotState.DONE:
             self.stop_motion()
-            done_msg = Bool()
-            done_msg.data = True
-            self.docking_done_pub.publish(done_msg)
-            self.get_logger().info("DONE: Marker reached at target z and centered in frame.")
+            if not self.done_published:
+                self.get_logger().info("DONE: Marker reached at target z and centered in frame.")
+                self.docking_done_pub.publish(Bool(data=True))
+                self.done_published = True
+
             self.draw_debug(frame, corners_list, ids, rvec, tvec, text=f"STATE: {self.state.name}")
             return
 
