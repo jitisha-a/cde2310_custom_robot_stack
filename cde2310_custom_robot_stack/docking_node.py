@@ -99,6 +99,8 @@ class ArucoPose(Node):
         self.target_x_m = 0.05 #0.03
         self.target_x_tol_m = 0.015
 
+        self.target_yaw_tol = 3;
+
         # coarse alignment settings
         # if |tx| too large, do rough side-shift first
 
@@ -116,6 +118,7 @@ class ArucoPose(Node):
         # fine docking P-controller gains
         self.kp_x = 2.5
         self.kp_z = 0.5 #0.35
+        self.kp_yaw = 0.02
         self.max_linear_speed = 0.05
         self.max_angular_speed = 0.30
         self.align_first_x_thresh_m = 0.05 #0.03  # if tx is still big, rotate first before moving
@@ -486,16 +489,24 @@ class ArucoPose(Node):
         
         tx = float(tvec[0, 0])
         return abs(tx - self.target_x_m) <= self.target_x_tol_m
+
+    def yaw_aligned(self, rvec):
+        _, _, yaw = self.rvec_to_rpy(rvec)
+        return abs(math.degrees(yaw)) < self.target_yaw_tol  # tolerance
     
 
-    def docking_goal_reached(self, tvec):
+    def docking_goal_reached(self, rvec, tvec):
         #Final docking condition: centered and at target z
-        return self.z_reached(tvec) and self.x_centered(tvec)
+        return (
+            self.z_reached(tvec) and 
+            self.x_centered(tvec) and
+            self.yaw_aligned(rvec)
+        )
 
     def clip(self, val, low, high):
         return max(low, min(high, val))
 
-    def compute_fine_docking_command(self, tvec):
+    def compute_fine_docking_command(self, rvec, tvec):
         
         # Fine closed-loop docking command.
 
@@ -510,9 +521,11 @@ class ArucoPose(Node):
         x_err = tx - self.target_x_m
         z_err = tz - self.target_z_m
 
-        # If marker is on right (tx > 0), robot should usually rotate right.
-        # If your robot turns wrong direction, flip this sign.
-        angular_z = -self.kp_x * x_err
+        roll, pitch, yaw = self.rvec_to_rpy(rvec)
+        yaw_deg = math.degrees(yaw)
+
+        # combine tx + yaw correction
+        angular_z = -self.kp_x * x_err - self.kp_yaw * yaw_deg
         angular_z = self.clip(angular_z, -self.max_angular_speed, self.max_angular_speed)
 
         # If marker still too off-center, rotate first and do not move forward yet
@@ -827,7 +840,7 @@ class ArucoPose(Node):
                 self.draw_debug(frame, corners_list, ids, text=f"STATE: {self.state.name}")
                 return
 
-            linear_x, angular_z, tx, tz = self.compute_fine_docking_command(tvec)
+            linear_x, angular_z, tx, tz = self.compute_fine_docking_command(rvec, tvec)
 
             self.get_logger().info(
                 f"FINE_ALIGN_AND_DOCK | "
@@ -835,7 +848,7 @@ class ArucoPose(Node):
                 f"cmd.linear.x={linear_x:+.3f}, cmd.angular.z={angular_z:+.3f}"
             )
 
-            if self.docking_goal_reached(tvec):
+            if self.docking_goal_reached(rvec, tvec):
                 self.get_logger().info("Docking goal reached: centered and at target z.")
                 self.stop_motion()
                 self.state = RobotState.DONE
