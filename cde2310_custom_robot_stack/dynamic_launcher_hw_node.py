@@ -30,7 +30,7 @@ class DynamicLauncherHwNode(Node):
         self.SERVO_PWM_FREQ = 50
 
         self.SERVO_HOLD_ANGLE = 120
-        self.SERVO_LAUNCH_ANGLE = 180
+        self.SERVO_LAUNCH_ANGLE = 170
 
         self.RAMP_STEP = 10
         self.RAMP_STEP_DELAY = 0.2
@@ -142,7 +142,7 @@ class DynamicLauncherHwNode(Node):
 
             self.motor_reverse()
             speed = 0
-            while speed < 100:
+            while speed < 30:
                 if self.abort_requested:
                     return
                 speed = min(speed + self.RAMP_STEP, 100)
