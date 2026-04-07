@@ -94,16 +94,16 @@ class ArucoPose(Node):
         # final docking target
         # want marker centered (tx ~ 0) and z ~ 0.40 m
         self.target_z_m = 0.312                  # 40 cm - target docking distance 
-        self.target_z_tol_m = 0.01             # 1 cm tolerance for docking distance
+        self.target_z_tol_m = 0.03 #0.01             # 1 cm tolerance for docking distance
 
-        self.target_x_m = 0.03
+        self.target_x_m = 0.05 #0.03
         self.target_x_tol_m = 0.015
 
         # coarse alignment settings
         # if |tx| too large, do rough side-shift first
 
         # decide whether coarse alignment is needed
-        self.tx_coarse_thresh_m = 0.02   # if |tx| > 5 cm, do coarse side correctrion before fine docking
+        self.tx_coarse_thresh_m = 0.01 #0.02   # if |tx| > 5 cm, do coarse side correctrion before fine docking
 
         # coarse alignment settings
         self.coarse_shift_scale = 0.7    # shift distance = scale * |tx|
@@ -115,10 +115,10 @@ class ArucoPose(Node):
         # tune these on your real robot TO DO
         # fine docking P-controller gains
         self.kp_x = 2.5
-        self.kp_z = 0.35
+        self.kp_z = 0.5 #0.35
         self.max_linear_speed = 0.05
         self.max_angular_speed = 0.30
-        self.align_first_x_thresh_m = 0.03  # if tx is still big, rotate first before moving
+        self.align_first_x_thresh_m = 0.05 #0.03  # if tx is still big, rotate first before moving
 
         # coarse state memory
         # coarse alignment memory
