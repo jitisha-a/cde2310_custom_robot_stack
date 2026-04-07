@@ -61,8 +61,6 @@ class SupervisorNode(Node):
 
         self.stationary_launch_sent = False
         self.dynamic_launch_sent = False
-<<<<<<< Updated upstream
-=======
         self.missions_completed = 0
         self.missions_required = 2  # one stationary + one dynamic
 
@@ -70,7 +68,6 @@ class SupervisorNode(Node):
         self.frontiers_sub = self.create_subscription(
             Bool, '/frontiers_exhausted', self.frontiers_exhausted_callback, 10
         )
->>>>>>> Stashed changes
 
         self.timer = self.create_timer(0.2, self.loop)
 
@@ -104,9 +101,6 @@ class SupervisorNode(Node):
     # -------------------------
     # Callbacks
     # -------------------------
-<<<<<<< Updated upstream
-    def coarse_goal_ready_callback(self, msg: Bool):
-=======
     def frontiers_exhausted_callback(self, msg: Bool):
         if msg.data and self.current_mode == 'EXPLORE':
             self.frontiers_exhausted = True
@@ -143,7 +137,6 @@ class SupervisorNode(Node):
             self.get_logger().warn('Station ID done but station type is unknown.')
 
     def marker_found_callback(self, msg: Bool):
->>>>>>> Stashed changes
         if msg.data and self.current_mode == 'EXPLORE':
             self.get_logger().info('Coarse docking goal ready. Switching to APPROACH.')
             self.current_mode = 'APPROACH'
@@ -198,22 +191,16 @@ class SupervisorNode(Node):
         if not msg.data:
             return
 
-        if self.current_mode in ['LAUNCH_STATIONARY', 'LAUNCH_DYNAMIC']:
-<<<<<<< Updated upstream
-            self.get_logger().info('Launch complete. Returning to EXPLORE.')
-            self.current_mode = 'EXPLORE'
-=======
+        if self.current_mode in ['LAUNCH_STATIONARY']:
             self.missions_completed += 1
             self.get_logger().info(f'Launch complete ({self.missions_completed}/{self.missions_required}). Returning to EXPLORE.')
             next_mode = 'ROAM' if self.frontiers_exhausted else 'EXPLORE'
             self.current_mode = next_mode
->>>>>>> Stashed changes
             self.station_type = ''
             self.measured_x = None
             self.measured_y = None
             self.stationary_launch_sent = False
             self.dynamic_launch_sent = False
-
 
 def main(args=None):
     rclpy.init(args=args)
