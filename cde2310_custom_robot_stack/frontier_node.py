@@ -3,7 +3,7 @@
 import math
 from collections import deque
 from typing import List, Tuple, Optional, Set
-from std_msgs.msg import String #added new
+from std_msgs.msg import String, Bool
 from visualization_msgs.msg import Marker
 
 import numpy as np
@@ -336,8 +336,8 @@ class FrontierExplorer(Node):
             self._navigating = False
             return
         self.get_logger().info("Goal accepted, navigating...")
-        # watchdog: if robot hasn't moved within 15s, cancel and blacklist
-        self._watchdog_timer = self.create_timer(45.0, self._watchdog_cb)
+        # watchdog: if robot hasn't moved within 35s, cancel and blacklist
+        self._watchdog_timer = self.create_timer(35.0, self._watchdog_cb)
         self._goal_handle.get_result_async().add_done_callback(self._goal_result_cb)
 
     def _watchdog_cb(self):
