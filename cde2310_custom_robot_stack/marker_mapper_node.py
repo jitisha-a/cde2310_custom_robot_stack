@@ -46,7 +46,7 @@ class MarkerMapperNode(Node):
         self.required_samples = 5
         self.goal_history = deque(maxlen=self.required_samples)
         self.current_candidate_id = None
-        self.standoff_distance_m = 0.50
+        self.standoff_distance_m = 0.40
 
         self.camera_x_offset_m = 0.07
         self.camera_y_offset_m = 0.00
