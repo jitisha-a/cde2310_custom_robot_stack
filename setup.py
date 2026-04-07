@@ -24,18 +24,14 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            entry_points={
-    'console_scripts': [
-        'frontier_node = cde2310_custom_robot_stack.frontier_node:main',
-        'docking_node = cde2310_custom_robot_stack.docking_node:main',
-        'marker_mapper_node = cde2310_custom_robot_stack.marker_mapper_node:main',
-        'approach_nav_node = cde2310_custom_robot_stack.approach_nav_node:main',
-        'timing_gauge_node = cde2310_custom_robot_stack.timing_gauge_node:main',
-        'supervisor_node = cde2310_custom_robot_stack.supervisor_node:main',
-        'stationary_launcher_hw_node = cde2310_custom_robot_stack.stationary_launcher_hw_node:main',
-        'dynamic_launcher_hw_node = cde2310_custom_robot_stack.dynamic_launcher_hw_node:main',
-    ],
-},
+            'frontier_node = cde2310_custom_robot_stack.frontier_node:main',
+            'docking_node = cde2310_custom_robot_stack.docking_node:main',
+            'marker_mapper_node = cde2310_custom_robot_stack.marker_mapper_node:main',
+            'approach_nav_node = cde2310_custom_robot_stack.approach_nav_node:main',
+            'timing_gauge_node = cde2310_custom_robot_stack.timing_gauge_node:main',
+            'supervisor_node = cde2310_custom_robot_stack.supervisor_node:main',
+            'stationary_launcher_hw_node = cde2310_custom_robot_stack.stationary_launcher_hw_node:main',
+            'dynamic_launcher_hw_node = cde2310_custom_robot_stack.dynamic_launcher_hw_node:main',
         ],
     },
 )
