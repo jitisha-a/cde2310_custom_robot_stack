@@ -7,7 +7,7 @@ import rclpy
 from rclpy.node import Node
 
 from sensor_msgs.msg import CompressedImage
-from std_msgs.msg import String, Bool, Int32, Float32
+from std_msgs.msg import String, Bool, Float32
 
 
 class TimingGaugeNode(Node):
@@ -15,24 +15,21 @@ class TimingGaugeNode(Node):
         super().__init__('timing_gauge_node')
 
         self.current_mode = 'EXPLORE'
-        self.target_role_marker_id = None
         self.done = False
 
-        # internal timing state
         self.state = 'WAIT_FIRST_VISIBLE'
         self.x_start = None
         self.y_start = None
         self.measured_x = None
         self.measured_y = None
 
+        self.dynamic_marker_id = 29
+
         self.dictionary = cv2.aruco.Dictionary_get(cv2.aruco.DICT_4X4_50)
         self.params = cv2.aruco.DetectorParameters_create()
 
         self.mode_sub = self.create_subscription(
             String, '/robot_mode', self.mode_callback, 10
-        )
-        self.role_marker_sub = self.create_subscription(
-            Int32, '/station_role_marker_id', self.role_marker_callback, 10
         )
         self.image_sub = self.create_subscription(
             CompressedImage, '/image_raw/compressed', self.image_callback, 10
@@ -60,9 +57,6 @@ class TimingGaugeNode(Node):
             self.get_logger().info('Entering GAUGE_DYNAMIC mode. Resetting gauge state.')
             self.reset_state()
 
-    def role_marker_callback(self, msg):
-        self.target_role_marker_id = msg.data
-
     def decode_compressed(self, msg):
         arr = np.frombuffer(msg.data, dtype=np.uint8)
         return cv2.imdecode(arr, cv2.IMREAD_COLOR)
@@ -80,9 +74,6 @@ class TimingGaugeNode(Node):
         if self.current_mode != 'GAUGE_DYNAMIC' or self.done:
             return
 
-        if self.target_role_marker_id is None:
-            return
-
         now = self.get_clock().now().nanoseconds / 1e9
 
         frame = self.decode_compressed(msg)
@@ -90,7 +81,7 @@ class TimingGaugeNode(Node):
             return
 
         ids = self.detect_ids(frame)
-        visible = self.target_role_marker_id in ids
+        visible = self.dynamic_marker_id in ids
 
         if self.state == 'WAIT_FIRST_VISIBLE':
             if visible:
