@@ -72,12 +72,9 @@ class FrontierExplorer(Node):
         # Frontier goal marker publisher
         self.marker_pub = self.create_publisher(Marker, '/frontier_goal_marker', 10)
 
-<<<<<<< Updated upstream
-=======
         # Frontiers exhausted signal
         self.exhausted_pub = self.create_publisher(Bool, '/frontiers_exhausted', 10)
 
->>>>>>> Stashed changes
         # TF buffer
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -351,61 +348,61 @@ class FrontierExplorer(Node):
         self.get_logger().warn("Watchdog: robot not moving after goal acceptance — cancelling.")
         if self._goal_handle is not None:
             self._goal_handle.cancel_goal_async()
-        cell = self.world_to_grid(*self._pending_goal)
-        if cell:
-            self.failed_goals.add(cell)
+        if self.current_mode == 'EXPLORE':
+            cell = self.world_to_grid(*self._pending_goal)
+            if cell:
+                self.failed_goals.add(cell)
+        else:
+            self.get_logger().info("Watchdog cancel due to mode switch — not blacklisting.")
         self._navigating = False
 
     def _goal_result_cb(self, future):
         if hasattr(self, '_watchdog_timer'):
             self._watchdog_timer.cancel()
+
         result = future.result()
         self._goal_handle = None
+
         if result.status == GoalStatus.STATUS_SUCCEEDED:
             self.get_logger().info("Goal reached successfully.")
         else:
-            self.get_logger().warn(f"Goal failed (status {result.status}) — blacklisting.")
-            cell = self.world_to_grid(*self._pending_goal)
-            if cell:
-                self.failed_goals.add(cell)
-        self._navigating = False  # ready for next frontier
+            if self.current_mode == 'EXPLORE':
+                self.get_logger().warn(
+                    f"Goal failed (status {result.status}) — blacklisting."
+                )
+                cell = self.world_to_grid(*self._pending_goal)
+                if cell:
+                    self.failed_goals.add(cell)
+            else:
+                self.get_logger().info(
+                    "Goal interrupted by mode switch (e.g. ArUco). Not marking failed."
+                )
+
+        self._navigating = False
 
     # ----------------------------
     # Timer-driven exploration
     # ----------------------------
     def explore_once(self):
         """Called every second by timer. Sends next frontier if not currently navigating."""
-<<<<<<< Updated upstream
-        if self.current_mode != 'EXPLORE':
-            return
-        if self._navigating:
-            return  # still going, wait for result callback
-=======
         if self.current_mode not in ('EXPLORE', 'ROAM'):
             return
         if self._navigating:
             return
->>>>>>> Stashed changes
         if not self.map_received:
             return
         if not self.update_robot_pose():
             return
 
-<<<<<<< Updated upstream
-=======
         if self.current_mode == 'ROAM':
             self._send_roam_goal()
             return
 
->>>>>>> Stashed changes
         clusters = self.detect_frontiers()
         clusters = [c for c in clusters if not any(cell in self.failed_goals for cell in c)]
         if not clusters:
             self.get_logger().info("No reachable frontiers left. Exploration finished.")
-<<<<<<< Updated upstream
-=======
             self.exhausted_pub.publish(Bool(data=True))
->>>>>>> Stashed changes
             self.explore_timer.cancel()
             return
 
@@ -419,8 +416,6 @@ class FrontierExplorer(Node):
         self.publish_goal_marker(wx, wy)
         self._navigating = True
         self.send_goal(wx, wy)
-<<<<<<< Updated upstream
-=======
 
     def _send_roam_goal(self):
         """Pick a random free cell far from current position and navigate to it."""
@@ -454,7 +449,6 @@ class FrontierExplorer(Node):
         self.publish_goal_marker(wx, wy)
         self._navigating = True
         self.send_goal(wx, wy)
->>>>>>> Stashed changes
 
 # ----------------------------
 # Main entry
