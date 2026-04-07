@@ -125,8 +125,9 @@ controller_server:
     # Progress checker parameters
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
-      required_movement_radius: 0.3
-      movement_time_allowance: 15.0
+      required_movement_radius: 0.1
+      movement_time_allowance: 8.0
+
     # Goal checker parameters
     #precise_goal_checker:
     #  plugin: "nav2_controller::SimpleGoalChecker"
@@ -168,7 +169,7 @@ controller_server:
       short_circuit_trajectory_evaluation: True
       stateful: True
       critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
-      BaseObstacle.scale: 0.1
+      BaseObstacle.scale: 0.01
       PathAlign.scale: 12.0
       PathAlign.forward_point_distance: 0.2
       GoalAlign.scale: 4.0

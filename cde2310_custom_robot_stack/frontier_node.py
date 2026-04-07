@@ -72,6 +72,12 @@ class FrontierExplorer(Node):
         # Frontier goal marker publisher
         self.marker_pub = self.create_publisher(Marker, '/frontier_goal_marker', 10)
 
+<<<<<<< Updated upstream
+=======
+        # Frontiers exhausted signal
+        self.exhausted_pub = self.create_publisher(Bool, '/frontiers_exhausted', 10)
+
+>>>>>>> Stashed changes
         # TF buffer
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -125,6 +131,9 @@ class FrontierExplorer(Node):
 
     def mode_callback(self, msg):
         self.current_mode = msg.data
+        # re-enable timer if switching into roam after frontier exploration ended
+        if self.current_mode == 'ROAM' and self.explore_timer.is_canceled():
+            self.explore_timer.reset()
 
     # ----------------------------
     # Grid helpers
@@ -366,19 +375,37 @@ class FrontierExplorer(Node):
     # ----------------------------
     def explore_once(self):
         """Called every second by timer. Sends next frontier if not currently navigating."""
+<<<<<<< Updated upstream
         if self.current_mode != 'EXPLORE':
             return
         if self._navigating:
             return  # still going, wait for result callback
+=======
+        if self.current_mode not in ('EXPLORE', 'ROAM'):
+            return
+        if self._navigating:
+            return
+>>>>>>> Stashed changes
         if not self.map_received:
             return
         if not self.update_robot_pose():
             return
 
+<<<<<<< Updated upstream
+=======
+        if self.current_mode == 'ROAM':
+            self._send_roam_goal()
+            return
+
+>>>>>>> Stashed changes
         clusters = self.detect_frontiers()
         clusters = [c for c in clusters if not any(cell in self.failed_goals for cell in c)]
         if not clusters:
             self.get_logger().info("No reachable frontiers left. Exploration finished.")
+<<<<<<< Updated upstream
+=======
+            self.exhausted_pub.publish(Bool(data=True))
+>>>>>>> Stashed changes
             self.explore_timer.cancel()
             return
 
@@ -392,6 +419,42 @@ class FrontierExplorer(Node):
         self.publish_goal_marker(wx, wy)
         self._navigating = True
         self.send_goal(wx, wy)
+<<<<<<< Updated upstream
+=======
+
+    def _send_roam_goal(self):
+        """Pick a random free cell far from current position and navigate to it."""
+        if self.map_grid is None:
+            return
+
+        free_cells = list(zip(*np.where(self.map_grid == 0)))
+        if not free_cells:
+            return
+
+        robot_cell = self.world_to_grid(self.robot_x, self.robot_y)
+        if robot_cell is None:
+            return
+        rr, rc = robot_cell
+
+        # filter to cells at least 1m away (20 cells at 0.05m/cell)
+        min_dist = 20
+        candidates = [
+            (r, c) for r, c in free_cells
+            if abs(r - rr) + abs(c - rc) > min_dist
+            and not any(self.is_occupied(r + dr, c + dc)
+                        for dr in range(-2, 3) for dc in range(-2, 3))
+        ]
+
+        if not candidates:
+            candidates = free_cells  # fallback to any free cell
+
+        target = candidates[np.random.randint(len(candidates))]
+        wx, wy = self.grid_to_world(*target)
+        self.get_logger().info(f"Roaming to: ({wx:.2f}, {wy:.2f})")
+        self.publish_goal_marker(wx, wy)
+        self._navigating = True
+        self.send_goal(wx, wy)
+>>>>>>> Stashed changes
 
 # ----------------------------
 # Main entry
