@@ -78,52 +78,19 @@ class SupervisorNode(Node):
 
     def coarse_goal_ready_callback(self, msg: Bool):
         if msg.data and self.current_mode in ('EXPLORE', 'ROAM'):
-            self.get_logger().info('Coarse docking goal ready. Switching to APPROACH.')
-            self.current_mode = 'APPROACH'
-
-    def approach_done_callback(self, msg: Bool):
-        if msg.data and self.current_mode == 'APPROACH':
-            self.get_logger().info('Approach complete. Switching to STATION_ID.')
-            self.current_mode = 'STATION_ID'
-
-    def station_type_callback(self, msg: String):
-        self.station_type = msg.data
-
-    def station_id_done_callback(self, msg: Bool):
-        if not msg.data or self.current_mode != 'STATION_ID':
-            return
-
-        if self.station_type == 'stationary':
-            self.get_logger().info('Station identified as STATIONARY. Switching to DOCK_STATIONARY.')
-            self.current_mode = 'DOCK_STATIONARY'
-        elif self.station_type == 'dynamic':
-            self.get_logger().info('Station identified as DYNAMIC. Switching to GAUGE_DYNAMIC.')
-            self.current_mode = 'GAUGE_DYNAMIC'
-        else:
-            self.get_logger().warn('Station ID done but station type is unknown.')
-
-    def marker_found_callback(self, msg: Bool):
-        if msg.data and self.current_mode == 'EXPLORE':
-            self.get_logger().info('Coarse docking goal ready. Switching to APPROACH.')
-            self.current_mode = 'APPROACH'
-
-    def coarse_goal_ready_callback(self, msg: Bool):
-        if not msg.data or self.current_mode != 'EXPLORE':
-            return
-
-        if self.target_station_type == 'stationary':
-            self.get_logger().info('Stationary target found. Switching to APPROACH_STATIONARY.')
-            self.current_mode = 'APPROACH_STATIONARY'
-        elif self.target_station_type == 'dynamic':
-            self.get_logger().info('Dynamic target found. Switching to APPROACH_DYNAMIC.')
-            self.current_mode = 'APPROACH_DYNAMIC'
-        else:
-            self.get_logger().warn('Coarse goal ready but target station type unknown.')
+            if self.target_station_type == 'stationary':
+                self.get_logger().info('Stationary target found. Switching to APPROACH_STATIONARY.')
+                self.current_mode = 'APPROACH_STATIONARY'
+            elif self.target_station_type == 'dynamic':
+                self.get_logger().info('Dynamic target found. Switching to APPROACH_DYNAMIC.')
+                self.current_mode = 'APPROACH_DYNAMIC'
+            else:
+                self.get_logger().warn('Coarse goal ready but target station type unknown.')
 
     def approach_done_callback(self, msg: Bool):
         if not msg.data:
             return
-
+    
         if self.current_mode == 'APPROACH_STATIONARY':
             self.get_logger().info('Approach complete. Switching to DOCK_STATIONARY.')
             self.current_mode = 'DOCK_STATIONARY'
@@ -131,6 +98,10 @@ class SupervisorNode(Node):
         elif self.current_mode == 'APPROACH_DYNAMIC':
             self.get_logger().info('Approach complete. Switching to DOCK_DYNAMIC.')
             self.current_mode = 'DOCK_DYNAMIC'
+
+    def target_station_type_callback(self, msg: String):
+        self.target_station_type = msg.data
+
 
     def docking_done_callback(self, msg: Bool):
         if not msg.data:
@@ -150,14 +121,11 @@ class SupervisorNode(Node):
         if not msg.data:
             return
 
-        if self.current_mode in ['LAUNCH_STATIONARY']:
+        if self.current_mode in ['LAUNCH_STATIONARY', 'DYNAMIC_STATIONARY]:
             self.missions_completed += 1
             self.get_logger().info(f'Launch complete ({self.missions_completed}/{self.missions_required}). Returning to EXPLORE.')
             next_mode = 'ROAM' if self.frontiers_exhausted else 'EXPLORE'
-            self.current_mode = next_mode
-            self.station_type = ''
-            self.measured_x = None
-            self.measured_y = None
+            self.target_station_type = ''
             self.stationary_launch_sent = False
             self.dynamic_launch_sent = False
 
