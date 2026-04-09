@@ -5,7 +5,7 @@ import threading
 
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Bool, Float32
+from std_msgs.msg import Bool
 
 import RPi.GPIO as GPIO
 
@@ -16,11 +16,12 @@ class DynamicLauncherHwNode(Node):
 
         self.is_launching = False
         self.abort_requested = False
-        self.launch_thread = None
+        self.awaiting_launch = False
 
-        self.measured_x = None
-        self.measured_y = None
+        self.ball_count = 0
+        self.max_balls = 3
 
+        # GPIO pins
         self.SERVO_PIN = 12
         self.ENA = 18
         self.IN1 = 23
@@ -28,28 +29,23 @@ class DynamicLauncherHwNode(Node):
 
         self.MOTOR_PWM_FREQ = 1000
         self.SERVO_PWM_FREQ = 50
+        self.MOTOR_DUTY = 90
 
         self.SERVO_HOLD_ANGLE = 120
         self.SERVO_LAUNCH_ANGLE = 180
-
-        self.RAMP_STEP = 10
-        self.RAMP_STEP_DELAY = 0.2
-        self.MOTOR_SPINUP_WAIT = 3.0
-
         self.SERVO_MOVE_TIME = 0.5
         self.SERVO_RETURN_SETTLE = 0.2
 
+        # ROS
         self.launch_cmd_sub = self.create_subscription(
             Bool, '/launch_dynamic_cmd', self.launch_cmd_callback, 10
         )
-        self.x_sub = self.create_subscription(
-            Float32, '/dynamic_launch_x_sec', self.x_callback, 10
-        )
-        self.y_sub = self.create_subscription(
-            Float32, '/dynamic_launch_y_sec', self.y_callback, 10
+        self.clearance_sub = self.create_subscription(
+            Bool, '/dynamic_launch_clear', self.clearance_callback, 10
         )
         self.launch_done_pub = self.create_publisher(Bool, '/launch_done', 10)
 
+        # GPIO setup
         GPIO.setmode(GPIO.BCM)
         GPIO.setwarnings(False)
 
@@ -69,12 +65,9 @@ class DynamicLauncherHwNode(Node):
 
         self.get_logger().info('Dynamic launcher HW node started on Pi.')
 
-    def x_callback(self, msg):
-        self.measured_x = msg.data
-
-    def y_callback(self, msg):
-        self.measured_y = msg.data
-
+    # -------------------------
+    # ROS callbacks
+    # -------------------------
     def launch_cmd_callback(self, msg: Bool):
         if not msg.data:
             return
@@ -83,14 +76,41 @@ class DynamicLauncherHwNode(Node):
             self.get_logger().warn('Dynamic launch already in progress.')
             return
 
-        if self.measured_x is None or self.measured_y is None:
-            self.get_logger().warn('Dynamic launch timing x/y not available yet.')
+        self.start_launch_sequence()
+
+    def clearance_callback(self, msg: Bool):
+        if not msg.data:
             return
 
-        self.abort_requested = False
-        self.launch_thread = threading.Thread(target=self.run_launch_sequence, daemon=True)
-        self.launch_thread.start()
+        if not self.is_launching:
+            return
 
+        if not self.awaiting_launch:
+            return
+
+        if self.ball_count >= self.max_balls:
+            return
+
+        self.awaiting_launch = False
+        self.ball_count += 1
+
+        self.get_logger().info(f'Received clearance for ball {self.ball_count}. Launching now.')
+        success = self.launch_one_ball(self.ball_count)
+
+        if not success:
+            self.get_logger().warn('Launch aborted or failed during servo actuation.')
+            self.finish_sequence(aborted=True)
+            return
+
+        if self.ball_count >= self.max_balls:
+            self.finish_sequence(aborted=False)
+        else:
+            self.awaiting_launch = True
+            self.get_logger().info(f'Waiting for next clearance. Balls launched: {self.ball_count}/{self.max_balls}')
+
+    # -------------------------
+    # Motor helpers
+    # -------------------------
     def motor_reverse(self):
         GPIO.output(self.IN1, GPIO.LOW)
         GPIO.output(self.IN2, GPIO.HIGH)
@@ -104,9 +124,13 @@ class DynamicLauncherHwNode(Node):
         duty = max(0, min(100, duty))
         self.motor_pwm.ChangeDutyCycle(duty)
 
+    # -------------------------
+    # Servo helper
+    # -------------------------
     def set_servo_angle(self, angle):
         angle = max(0, min(180, angle))
         duty = 2 + (angle / 18.0)
+
         GPIO.output(self.SERVO_PIN, True)
         self.servo_pwm.ChangeDutyCycle(duty)
         time.sleep(self.SERVO_MOVE_TIME)
@@ -121,71 +145,45 @@ class DynamicLauncherHwNode(Node):
             time.sleep(0.05)
         return True
 
+    # -------------------------
+    # Launch control
+    # -------------------------
+    def start_launch_sequence(self):
+        self.abort_requested = False
+        self.is_launching = True
+        self.awaiting_launch = True
+        self.ball_count = 0
+
+        self.motor_reverse()
+        self.set_motor_speed(self.MOTOR_DUTY)
+
+        self.get_logger().info(
+            f'Started dynamic launch sequence. Motor running reverse at {self.MOTOR_DUTY}% duty.'
+        )
+        self.get_logger().info('Waiting for first clearance signal from desktop.')
+
     def launch_one_ball(self, ball_number):
-        self.get_logger().info(f'Dynamic launch: ball {ball_number}')
+        self.get_logger().info(f'Launching ball {ball_number}...')
         self.set_servo_angle(self.SERVO_LAUNCH_ANGLE)
         self.set_servo_angle(self.SERVO_HOLD_ANGLE)
 
         if not self.sleep_with_abort(self.SERVO_RETURN_SETTLE):
             return False
 
+        self.get_logger().info(f'Ball {ball_number} launched.')
         return True
 
-    def run_launch_sequence(self):
-        self.is_launching = True
+    def finish_sequence(self, aborted=False):
+        self.motor_stop()
+        self.is_launching = False
+        self.awaiting_launch = False
 
-        try:
-            x = float(self.measured_x)
-            y = float(self.measured_y)
+        if aborted:
+            self.get_logger().warn('Dynamic launch sequence aborted.')
+            return
 
-            self.get_logger().info(f'Starting dynamic launch sequence with x={x:.2f}s, y={y:.2f}s')
-
-            self.motor_reverse()
-            speed = 0
-            while speed < 100:
-                if self.abort_requested:
-                    return
-                speed = min(speed + self.RAMP_STEP, 100)
-                self.set_motor_speed(speed)
-                self.get_logger().info(f'Motor speed: {speed}%')
-                if not self.sleep_with_abort(self.RAMP_STEP_DELAY):
-                    return
-
-            if not self.sleep_with_abort(self.MOTOR_SPINUP_WAIT):
-                return
-
-            # Align to schedule:
-            # assuming command starts while current visible phase is active,
-            # wait x to finish this visible window, then y to next visible window
-            if not self.sleep_with_abort(x):
-                return
-            if not self.sleep_with_abort(y):
-                return
-
-            if not self.launch_one_ball(1):
-                return
-
-            # next visible windows are spaced by x + y
-            if not self.sleep_with_abort(x + y):
-                return
-            if not self.launch_one_ball(2):
-                return
-
-            if not self.sleep_with_abort(x + y):
-                return
-            if not self.launch_one_ball(3):
-                return
-
-            self.motor_stop()
-            self.launch_done_pub.publish(Bool(data=True))
-            self.get_logger().info('Published /launch_done = True')
-
-        except Exception as e:
-            self.get_logger().error(f'Error during dynamic launch sequence: {e}')
-
-        finally:
-            self.motor_stop()
-            self.is_launching = False
+        self.launch_done_pub.publish(Bool(data=True))
+        self.get_logger().info('Dynamic launch sequence complete. Published /launch_done = True')
 
     def destroy_node(self):
         try:

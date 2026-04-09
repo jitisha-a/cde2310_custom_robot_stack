@@ -23,12 +23,7 @@ def generate_launch_description():
         ),
         Node(
             package='cde2310_custom_robot_stack',
-            executable='station_id_node',
-            output='screen'
-        ),
-        Node(
-            package='cde2310_custom_robot_stack',
-            executable='timing_gauge_node',
+            executable='dynamic_launch_clearance_node',
             output='screen'
         ),
         Node(

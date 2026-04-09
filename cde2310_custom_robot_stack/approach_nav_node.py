@@ -35,7 +35,7 @@ class ApproachNavNode(Node):
 
     def mode_callback(self, msg):
         self.current_mode = msg.data
-        if self.current_mode != 'APPROACH':
+        if self.current_mode not in ['APPROACH_STATIONARY', 'APPROACH_DYNAMIC']:
             self.goal_sent = False
             self.goal_in_progress = False
 
@@ -43,7 +43,7 @@ class ApproachNavNode(Node):
         self.latest_goal = msg
 
     def loop(self):
-        if self.current_mode != 'APPROACH':
+        if self.current_mode not in ['APPROACH_STATIONARY', 'APPROACH_DYNAMIC']:
             return
 
         if self.latest_goal is None:

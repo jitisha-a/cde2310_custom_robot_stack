@@ -46,7 +46,7 @@ class MarkerMapperNode(Node):
         self.required_samples = 5
         self.goal_history = deque(maxlen=self.required_samples)
         self.current_candidate_id = None
-        self.standoff_distance_m = 0.50
+        self.standoff_distance_m = 0.40
 
         self.camera_x_offset_m = 0.07
         self.camera_y_offset_m = 0.00
@@ -82,6 +82,7 @@ class MarkerMapperNode(Node):
         self.goal_pub = self.create_publisher(PoseStamped, '/coarse_dock_goal', 10)
         self.goal_ready_pub = self.create_publisher(Bool, '/coarse_goal_ready', 10)
         self.target_marker_pub = self.create_publisher(Int32, '/target_station_marker_id', 10)
+        self.target_type_pub = self.create_publisher(String, '/target_station_type', 10)
 
         self.get_logger().info('Marker mapper node started.')
 
@@ -147,6 +148,13 @@ class MarkerMapperNode(Node):
             return x, y, yaw
         except Exception:
             return None
+
+    def marker_id_to_station_type(self, marker_id):
+        if marker_id == 23:
+            return 'stationary'
+        if marker_id == 25:
+            return 'dynamic'
+        return ''
 
     def image_callback(self, msg):
         if self.current_mode != 'EXPLORE':
@@ -215,12 +223,15 @@ class MarkerMapperNode(Node):
         goal_msg.pose.orientation.z = math.sin(avg_yaw / 2.0)
         goal_msg.pose.orientation.w = math.cos(avg_yaw / 2.0)
 
+        station_type = self.marker_id_to_station_type(self.current_candidate_id)
+
         self.goal_pub.publish(goal_msg)
         self.goal_ready_pub.publish(Bool(data=True))
         self.target_marker_pub.publish(Int32(data=self.current_candidate_id))
+        self.target_type_pub.publish(String(data=station_type))
 
         self.get_logger().info(
-            f'Coarse goal ready for station marker {self.current_candidate_id}: '
+            f'Coarse goal ready for marker {self.current_candidate_id} ({station_type}): '
             f'x={avg_x:.2f}, y={avg_y:.2f}'
         )
 
