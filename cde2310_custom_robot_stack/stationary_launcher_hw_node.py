@@ -36,7 +36,7 @@ class StationaryLauncherHwNode(Node):
         self.DELAY_AFTER_FIRST = 2.0
         self.DELAY_AFTER_SECOND = 8.0
 
-        self.Max_duty = 30 # added new
+        self.Max_duty = 90 # added new
 
         self.SERVO_MOVE_TIME = 0.5
         self.SERVO_RETURN_SETTLE = 0.2
