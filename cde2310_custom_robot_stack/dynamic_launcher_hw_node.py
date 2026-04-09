@@ -29,7 +29,7 @@ class DynamicLauncherHwNode(Node):
 
         self.MOTOR_PWM_FREQ = 1000
         self.SERVO_PWM_FREQ = 50
-        self.MOTOR_DUTY = 30
+        self.MOTOR_DUTY = 90
 
         self.SERVO_HOLD_ANGLE = 120
         self.SERVO_LAUNCH_ANGLE = 180
