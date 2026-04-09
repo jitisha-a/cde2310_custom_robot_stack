@@ -36,6 +36,8 @@ class DynamicLauncherHwNode(Node):
         self.RAMP_STEP_DELAY = 0.2
         self.MOTOR_SPINUP_WAIT = 3.0
 
+        self.Max_duty = 30
+
         self.SERVO_MOVE_TIME = 0.5
         self.SERVO_RETURN_SETTLE = 0.2
 
@@ -145,7 +147,8 @@ class DynamicLauncherHwNode(Node):
             while speed < 30:
                 if self.abort_requested:
                     return
-                speed = min(speed + self.RAMP_STEP, 100)
+                speed += self.RAMP_STEP
+                speed = min(speed, self.Max_duty)
                 self.set_motor_speed(speed)
                 self.get_logger().info(f'Motor speed: {speed}%')
                 if not self.sleep_with_abort(self.RAMP_STEP_DELAY):
