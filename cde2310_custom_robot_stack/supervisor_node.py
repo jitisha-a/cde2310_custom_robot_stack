@@ -12,6 +12,13 @@ class SupervisorNode(Node):
         self.mode_pub = self.create_publisher(String, '/robot_mode', 10)
         self.launch_stationary_cmd_pub = self.create_publisher(Bool, '/launch_stationary_cmd', 10)
         self.launch_dynamic_cmd_pub = self.create_publisher(Bool, '/launch_dynamic_cmd', 10)
+        self.serviced_marker_pub = self.create_publisher(Int32, '/serviced_station_marker_id', 10)
+
+        self.target_station_marker_sub = self.create_subscription(
+            Int32, '/target_station_marker_id', self.target_station_marker_callback, 10
+        )
+        
+        self.target_station_marker_id = None
 
         self.coarse_goal_ready_sub = self.create_subscription(
             Bool, '/coarse_goal_ready', self.coarse_goal_ready_callback, 10
@@ -117,17 +124,26 @@ class SupervisorNode(Node):
             self.current_mode = 'LAUNCH_DYNAMIC'
             self.dynamic_launch_sent = False
 
-    def launch_done_callback(self, msg: Bool):
-        if not msg.data:
-            return
+    def target_station_marker_callback(self, msg: Int32):
+        self.target_station_marker_id = msg.data
 
-        if self.current_mode in ['LAUNCH_STATIONARY', 'DYNAMIC_STATIONARY]:
-            self.missions_completed += 1
-            self.get_logger().info(f'Launch complete ({self.missions_completed}/{self.missions_required}). Returning to EXPLORE.')
-            next_mode = 'ROAM' if self.frontiers_exhausted else 'EXPLORE'
-            self.target_station_type = ''
-            self.stationary_launch_sent = False
-            self.dynamic_launch_sent = False
+    def launch_done_callback(self, msg: Bool):
+    if not msg.data:
+        return
+
+    if self.current_mode in ['LAUNCH_STATIONARY', 'LAUNCH_DYNAMIC']:
+        if self.target_station_marker_id in [23, 25]:
+            self.get_logger().info(
+                f'Launch complete. Marking station marker {self.target_station_marker_id} as serviced.'
+            )
+            self.serviced_marker_pub.publish(Int32(data=self.target_station_marker_id))
+
+        self.get_logger().info('Launch complete. Returning to EXPLORE.')
+        self.current_mode = 'EXPLORE'
+        self.target_station_type = ''
+        self.stationary_launch_sent = False
+        self.dynamic_launch_sent = False
+        self.target_station_marker_id = None
 
 def main(args=None):
     rclpy.init(args=args)
