@@ -3,13 +3,9 @@
 import time
 import threading
 
-import cv2
-import numpy as np
-
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Bool
-from sensor_msgs.msg import CompressedImage
 
 import RPi.GPIO as GPIO
 
@@ -20,10 +16,10 @@ class DynamicLauncherHwNode(Node):
 
         self.is_launching = False
         self.abort_requested = False
-        self.launch_thread = None
+        self.awaiting_launch = False
 
-        self.latest_frame = None
-        self.dynamic_marker_id = 29
+        self.ball_count = 0
+        self.max_balls = 3
 
         # GPIO pins
         self.SERVO_PIN = 12
@@ -40,18 +36,12 @@ class DynamicLauncherHwNode(Node):
         self.SERVO_MOVE_TIME = 0.5
         self.SERVO_RETURN_SETTLE = 0.2
 
-        # image visibility settings
-        self.full_frame_margin_px = 5
-
-        self.dictionary = cv2.aruco.Dictionary_get(cv2.aruco.DICT_4X4_50)
-        self.params = cv2.aruco.DetectorParameters_create()
-
         # ROS
         self.launch_cmd_sub = self.create_subscription(
             Bool, '/launch_dynamic_cmd', self.launch_cmd_callback, 10
         )
-        self.image_sub = self.create_subscription(
-            CompressedImage, '/image_raw/compressed', self.image_callback, 10
+        self.clearance_sub = self.create_subscription(
+            Bool, '/dynamic_launch_clear', self.clearance_callback, 10
         )
         self.launch_done_pub = self.create_publisher(Bool, '/launch_done', 10)
 
@@ -86,14 +76,37 @@ class DynamicLauncherHwNode(Node):
             self.get_logger().warn('Dynamic launch already in progress.')
             return
 
-        self.abort_requested = False
-        self.launch_thread = threading.Thread(target=self.run_launch_sequence, daemon=True)
-        self.launch_thread.start()
+        self.start_launch_sequence()
 
-    def image_callback(self, msg: CompressedImage):
-        arr = np.frombuffer(msg.data, dtype=np.uint8)
-        frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-        self.latest_frame = frame
+    def clearance_callback(self, msg: Bool):
+        if not msg.data:
+            return
+
+        if not self.is_launching:
+            return
+
+        if not self.awaiting_launch:
+            return
+
+        if self.ball_count >= self.max_balls:
+            return
+
+        self.awaiting_launch = False
+        self.ball_count += 1
+
+        self.get_logger().info(f'Received clearance for ball {self.ball_count}. Launching now.')
+        success = self.launch_one_ball(self.ball_count)
+
+        if not success:
+            self.get_logger().warn('Launch aborted or failed during servo actuation.')
+            self.finish_sequence(aborted=True)
+            return
+
+        if self.ball_count >= self.max_balls:
+            self.finish_sequence(aborted=False)
+        else:
+            self.awaiting_launch = True
+            self.get_logger().info(f'Waiting for next clearance. Balls launched: {self.ball_count}/{self.max_balls}')
 
     # -------------------------
     # Motor helpers
@@ -124,9 +137,6 @@ class DynamicLauncherHwNode(Node):
         GPIO.output(self.SERVO_PIN, False)
         self.servo_pwm.ChangeDutyCycle(0)
 
-    # -------------------------
-    # Utility
-    # -------------------------
     def sleep_with_abort(self, duration):
         end_time = time.time() + duration
         while time.time() < end_time:
@@ -135,62 +145,25 @@ class DynamicLauncherHwNode(Node):
             time.sleep(0.05)
         return True
 
-    def marker_29_fully_visible(self):
-        if self.latest_frame is None:
-            return False
+    # -------------------------
+    # Launch control
+    # -------------------------
+    def start_launch_sequence(self):
+        self.abort_requested = False
+        self.is_launching = True
+        self.awaiting_launch = True
+        self.ball_count = 0
 
-        frame = self.latest_frame
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        self.motor_reverse()
+        self.set_motor_speed(self.MOTOR_DUTY)
 
-        corners_list, ids, _ = cv2.aruco.detectMarkers(
-            gray, self.dictionary, parameters=self.params
+        self.get_logger().info(
+            f'Started dynamic launch sequence. Motor running reverse at {self.MOTOR_DUTY}% duty.'
         )
-
-        if ids is None or len(ids) == 0:
-            return False
-
-        ids_flat = ids.flatten().tolist()
-        if self.dynamic_marker_id not in ids_flat:
-            return False
-
-        idx = ids_flat.index(self.dynamic_marker_id)
-        corners = corners_list[idx].reshape(4, 2)
-
-        h, w = gray.shape[:2]
-
-        # full in frame means all corners are inside image with a small margin
-        for (x, y) in corners:
-            if x < self.full_frame_margin_px:
-                return False
-            if x > (w - self.full_frame_margin_px):
-                return False
-            if y < self.full_frame_margin_px:
-                return False
-            if y > (h - self.full_frame_margin_px):
-                return False
-
-        return True
-
-    def wait_for_marker_29_visible(self):
-        self.get_logger().info('Waiting for marker 29 to appear fully in frame...')
-        while rclpy.ok() and not self.abort_requested:
-            if self.marker_29_fully_visible():
-                self.get_logger().info('Marker 29 is fully visible.')
-                return True
-            time.sleep(0.05)
-        return False
-
-    def wait_for_marker_29_disappear(self):
-        self.get_logger().info('Waiting for marker 29 to disappear from frame...')
-        while rclpy.ok() and not self.abort_requested:
-            if not self.marker_29_fully_visible():
-                self.get_logger().info('Marker 29 disappeared.')
-                return True
-            time.sleep(0.05)
-        return False
+        self.get_logger().info('Waiting for first clearance signal from desktop.')
 
     def launch_one_ball(self, ball_number):
-        self.get_logger().info(f'Dynamic launch: ball {ball_number}')
+        self.get_logger().info(f'Launching ball {ball_number}...')
         self.set_servo_angle(self.SERVO_LAUNCH_ANGLE)
         self.set_servo_angle(self.SERVO_HOLD_ANGLE)
 
@@ -200,52 +173,17 @@ class DynamicLauncherHwNode(Node):
         self.get_logger().info(f'Ball {ball_number} launched.')
         return True
 
-    # -------------------------
-    # Main sequence
-    # -------------------------
-    def run_launch_sequence(self):
-        self.is_launching = True
+    def finish_sequence(self, aborted=False):
+        self.motor_stop()
+        self.is_launching = False
+        self.awaiting_launch = False
 
-        try:
-            self.get_logger().info('Starting dynamic launch sequence.')
+        if aborted:
+            self.get_logger().warn('Dynamic launch sequence aborted.')
+            return
 
-            # 1. Start motor immediately at 30% duty
-            self.motor_reverse()
-            self.set_motor_speed(self.MOTOR_DUTY)
-            self.get_logger().info(f'Motor started immediately at {self.MOTOR_DUTY}% duty.')
-
-            # 2. Ball 1: wait for visible
-            if not self.wait_for_marker_29_visible():
-                return
-            if not self.launch_one_ball(1):
-                return
-
-            # 3. Ball 2: wait disappear, then visible
-            if not self.wait_for_marker_29_disappear():
-                return
-            if not self.wait_for_marker_29_visible():
-                return
-            if not self.launch_one_ball(2):
-                return
-
-            # 4. Ball 3: wait disappear, then visible
-            if not self.wait_for_marker_29_disappear():
-                return
-            if not self.wait_for_marker_29_visible():
-                return
-            if not self.launch_one_ball(3):
-                return
-
-            self.motor_stop()
-            self.launch_done_pub.publish(Bool(data=True))
-            self.get_logger().info('Published /launch_done = True')
-
-        except Exception as e:
-            self.get_logger().error(f'Error during dynamic launch sequence: {e}')
-
-        finally:
-            self.motor_stop()
-            self.is_launching = False
+        self.launch_done_pub.publish(Bool(data=True))
+        self.get_logger().info('Dynamic launch sequence complete. Published /launch_done = True')
 
     def destroy_node(self):
         try:
