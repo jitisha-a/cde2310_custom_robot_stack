@@ -84,6 +84,12 @@ class MarkerMapperNode(Node):
         self.target_marker_pub = self.create_publisher(Int32, '/target_station_marker_id', 10)
         self.target_type_pub = self.create_publisher(String, '/target_station_type', 10)
 
+        self.serviced_marker_ids = set()
+
+        self.serviced_marker_sub = self.create_subscription(
+            Int32, '/serviced_station_marker_id', self.serviced_marker_callback, 10
+        )
+
         self.get_logger().info('Marker mapper node started.')
 
     def mode_callback(self, msg):
@@ -110,6 +116,8 @@ class MarkerMapperNode(Node):
         chosen_id = None
         chosen_idx = None
         for sid in self.station_marker_ids:
+            if sid in self.serviced_marker_ids:
+                continue
             if sid in ids_flat:
                 chosen_id = sid
                 chosen_idx = ids_flat.index(sid)
@@ -156,6 +164,10 @@ class MarkerMapperNode(Node):
             return 'dynamic'
         return ''
 
+    def serviced_marker_callback(self, msg: Int32):
+        self.serviced_marker_ids.add(msg.data)
+        self.get_logger().info(f'Marker {msg.data} permanently marked as serviced and will be ignored.')
+    
     def image_callback(self, msg):
         if self.current_mode != 'EXPLORE':
             return
