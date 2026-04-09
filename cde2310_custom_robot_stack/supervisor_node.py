@@ -128,22 +128,22 @@ class SupervisorNode(Node):
         self.target_station_marker_id = msg.data
 
     def launch_done_callback(self, msg: Bool):
-    if not msg.data:
-        return
-
-    if self.current_mode in ['LAUNCH_STATIONARY', 'LAUNCH_DYNAMIC']:
-        if self.target_station_marker_id in [23, 25]:
-            self.get_logger().info(
-                f'Launch complete. Marking station marker {self.target_station_marker_id} as serviced.'
-            )
-            self.serviced_marker_pub.publish(Int32(data=self.target_station_marker_id))
-
-        self.get_logger().info('Launch complete. Returning to EXPLORE.')
-        self.current_mode = 'EXPLORE'
-        self.target_station_type = ''
-        self.stationary_launch_sent = False
-        self.dynamic_launch_sent = False
-        self.target_station_marker_id = None
+        if not msg.data:
+            return
+    
+        if self.current_mode in ['LAUNCH_STATIONARY', 'LAUNCH_DYNAMIC']:
+            if self.target_station_marker_id in [23, 25]:
+                self.get_logger().info(
+                    f'Launch complete. Marking station marker {self.target_station_marker_id} as serviced.'
+                )
+                self.serviced_marker_pub.publish(Int32(data=self.target_station_marker_id))
+    
+            self.get_logger().info('Launch complete. Returning to EXPLORE.')
+            self.current_mode = 'EXPLORE'
+            self.target_station_type = ''
+            self.stationary_launch_sent = False
+            self.dynamic_launch_sent = False
+            self.target_station_marker_id = None
 
 def main(args=None):
     rclpy.init(args=args)
