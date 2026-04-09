@@ -3,9 +3,13 @@
 import time
 import threading
 
+import cv2
+import numpy as np
+
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Bool, Float32
+from std_msgs.msg import Bool
+from sensor_msgs.msg import CompressedImage
 
 import RPi.GPIO as GPIO
 
@@ -18,9 +22,10 @@ class DynamicLauncherHwNode(Node):
         self.abort_requested = False
         self.launch_thread = None
 
-        self.measured_x = None
-        self.measured_y = None
+        self.latest_frame = None
+        self.dynamic_marker_id = 29
 
+        # GPIO pins
         self.SERVO_PIN = 12
         self.ENA = 18
         self.IN1 = 23
@@ -28,30 +33,29 @@ class DynamicLauncherHwNode(Node):
 
         self.MOTOR_PWM_FREQ = 1000
         self.SERVO_PWM_FREQ = 50
+        self.MOTOR_DUTY = 30
 
         self.SERVO_HOLD_ANGLE = 120
-        self.SERVO_LAUNCH_ANGLE = 170
-
-        self.RAMP_STEP = 10
-        self.RAMP_STEP_DELAY = 0.2
-        self.MOTOR_SPINUP_WAIT = 3.0
-
-        self.Max_duty = 30
-
+        self.SERVO_LAUNCH_ANGLE = 180
         self.SERVO_MOVE_TIME = 0.5
         self.SERVO_RETURN_SETTLE = 0.2
 
+        # image visibility settings
+        self.full_frame_margin_px = 5
+
+        self.dictionary = cv2.aruco.Dictionary_get(cv2.aruco.DICT_4X4_50)
+        self.params = cv2.aruco.DetectorParameters_create()
+
+        # ROS
         self.launch_cmd_sub = self.create_subscription(
             Bool, '/launch_dynamic_cmd', self.launch_cmd_callback, 10
         )
-        self.x_sub = self.create_subscription(
-            Float32, '/dynamic_launch_x_sec', self.x_callback, 10
-        )
-        self.y_sub = self.create_subscription(
-            Float32, '/dynamic_launch_y_sec', self.y_callback, 10
+        self.image_sub = self.create_subscription(
+            CompressedImage, '/image_raw/compressed', self.image_callback, 10
         )
         self.launch_done_pub = self.create_publisher(Bool, '/launch_done', 10)
 
+        # GPIO setup
         GPIO.setmode(GPIO.BCM)
         GPIO.setwarnings(False)
 
@@ -71,12 +75,9 @@ class DynamicLauncherHwNode(Node):
 
         self.get_logger().info('Dynamic launcher HW node started on Pi.')
 
-    def x_callback(self, msg):
-        self.measured_x = msg.data
-
-    def y_callback(self, msg):
-        self.measured_y = msg.data
-
+    # -------------------------
+    # ROS callbacks
+    # -------------------------
     def launch_cmd_callback(self, msg: Bool):
         if not msg.data:
             return
@@ -85,14 +86,18 @@ class DynamicLauncherHwNode(Node):
             self.get_logger().warn('Dynamic launch already in progress.')
             return
 
-        if self.measured_x is None or self.measured_y is None:
-            self.get_logger().warn('Dynamic launch timing x/y not available yet.')
-            return
-
         self.abort_requested = False
         self.launch_thread = threading.Thread(target=self.run_launch_sequence, daemon=True)
         self.launch_thread.start()
 
+    def image_callback(self, msg: CompressedImage):
+        arr = np.frombuffer(msg.data, dtype=np.uint8)
+        frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        self.latest_frame = frame
+
+    # -------------------------
+    # Motor helpers
+    # -------------------------
     def motor_reverse(self):
         GPIO.output(self.IN1, GPIO.LOW)
         GPIO.output(self.IN2, GPIO.HIGH)
@@ -106,15 +111,22 @@ class DynamicLauncherHwNode(Node):
         duty = max(0, min(100, duty))
         self.motor_pwm.ChangeDutyCycle(duty)
 
+    # -------------------------
+    # Servo helper
+    # -------------------------
     def set_servo_angle(self, angle):
         angle = max(0, min(180, angle))
         duty = 2 + (angle / 18.0)
+
         GPIO.output(self.SERVO_PIN, True)
         self.servo_pwm.ChangeDutyCycle(duty)
         time.sleep(self.SERVO_MOVE_TIME)
         GPIO.output(self.SERVO_PIN, False)
         self.servo_pwm.ChangeDutyCycle(0)
 
+    # -------------------------
+    # Utility
+    # -------------------------
     def sleep_with_abort(self, duration):
         end_time = time.time() + duration
         while time.time() < end_time:
@@ -122,6 +134,60 @@ class DynamicLauncherHwNode(Node):
                 return False
             time.sleep(0.05)
         return True
+
+    def marker_29_fully_visible(self):
+        if self.latest_frame is None:
+            return False
+
+        frame = self.latest_frame
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+        corners_list, ids, _ = cv2.aruco.detectMarkers(
+            gray, self.dictionary, parameters=self.params
+        )
+
+        if ids is None or len(ids) == 0:
+            return False
+
+        ids_flat = ids.flatten().tolist()
+        if self.dynamic_marker_id not in ids_flat:
+            return False
+
+        idx = ids_flat.index(self.dynamic_marker_id)
+        corners = corners_list[idx].reshape(4, 2)
+
+        h, w = gray.shape[:2]
+
+        # full in frame means all corners are inside image with a small margin
+        for (x, y) in corners:
+            if x < self.full_frame_margin_px:
+                return False
+            if x > (w - self.full_frame_margin_px):
+                return False
+            if y < self.full_frame_margin_px:
+                return False
+            if y > (h - self.full_frame_margin_px):
+                return False
+
+        return True
+
+    def wait_for_marker_29_visible(self):
+        self.get_logger().info('Waiting for marker 29 to appear fully in frame...')
+        while rclpy.ok() and not self.abort_requested:
+            if self.marker_29_fully_visible():
+                self.get_logger().info('Marker 29 is fully visible.')
+                return True
+            time.sleep(0.05)
+        return False
+
+    def wait_for_marker_29_disappear(self):
+        self.get_logger().info('Waiting for marker 29 to disappear from frame...')
+        while rclpy.ok() and not self.abort_requested:
+            if not self.marker_29_fully_visible():
+                self.get_logger().info('Marker 29 disappeared.')
+                return True
+            time.sleep(0.05)
+        return False
 
     def launch_one_ball(self, ball_number):
         self.get_logger().info(f'Dynamic launch: ball {ball_number}')
@@ -131,50 +197,41 @@ class DynamicLauncherHwNode(Node):
         if not self.sleep_with_abort(self.SERVO_RETURN_SETTLE):
             return False
 
+        self.get_logger().info(f'Ball {ball_number} launched.')
         return True
 
+    # -------------------------
+    # Main sequence
+    # -------------------------
     def run_launch_sequence(self):
         self.is_launching = True
 
         try:
-            x = float(self.measured_x)
-            y = float(self.measured_y)
+            self.get_logger().info('Starting dynamic launch sequence.')
 
-            self.get_logger().info(f'Starting dynamic launch sequence with x={x:.2f}s, y={y:.2f}s')
-
+            # 1. Start motor immediately at 30% duty
             self.motor_reverse()
-            speed = 0
-            while speed < 30:
-                if self.abort_requested:
-                    return
-                speed += self.RAMP_STEP
-                speed = min(speed, self.Max_duty)
-                self.set_motor_speed(speed)
-                self.get_logger().info(f'Motor speed: {speed}%')
-                if not self.sleep_with_abort(self.RAMP_STEP_DELAY):
-                    return
+            self.set_motor_speed(self.MOTOR_DUTY)
+            self.get_logger().info(f'Motor started immediately at {self.MOTOR_DUTY}% duty.')
 
-            if not self.sleep_with_abort(self.MOTOR_SPINUP_WAIT):
+            # 2. Ball 1: wait for visible
+            if not self.wait_for_marker_29_visible():
                 return
-
-            # Align to schedule:
-            # assuming command starts while current visible phase is active,
-            # wait x to finish this visible window, then y to next visible window
-            if not self.sleep_with_abort(x):
-                return
-            if not self.sleep_with_abort(y):
-                return
-
             if not self.launch_one_ball(1):
                 return
 
-            # next visible windows are spaced by x + y
-            if not self.sleep_with_abort(x + y):
+            # 3. Ball 2: wait disappear, then visible
+            if not self.wait_for_marker_29_disappear():
+                return
+            if not self.wait_for_marker_29_visible():
                 return
             if not self.launch_one_ball(2):
                 return
 
-            if not self.sleep_with_abort(x + y):
+            # 4. Ball 3: wait disappear, then visible
+            if not self.wait_for_marker_29_disappear():
+                return
+            if not self.wait_for_marker_29_visible():
                 return
             if not self.launch_one_ball(3):
                 return
