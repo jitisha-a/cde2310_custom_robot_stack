@@ -3,7 +3,8 @@
 import math
 from collections import deque
 from typing import List, Tuple, Optional, Set
-from std_msgs.msg import String #added new
+from std_msgs.msg import String, Bool
+from visualization_msgs.msg import Marker
 
 import numpy as np
 
@@ -68,6 +69,12 @@ class FrontierExplorer(Node):
         # Nav2 Action Client
         self.nav2_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
 
+        # Frontier goal marker publisher
+        self.marker_pub = self.create_publisher(Marker, '/frontier_goal_marker', 10)
+
+        # Frontiers exhausted signal
+        self.exhausted_pub = self.create_publisher(Bool, '/frontiers_exhausted', 10)
+
         # TF buffer
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -88,6 +95,14 @@ class FrontierExplorer(Node):
         # Frontier params
         self.frontier_min_size = 1
         self.failed_goals: Set[GridCell] = set()
+
+        # Goal state
+        self._goal_handle = None
+        self._navigating = False
+        self._pending_goal = (0.0, 0.0)
+
+        # Timer-driven exploration loop
+        self.explore_timer = self.create_timer(1.0, self.explore_once)
 
     # ----------------------------
     # Callbacks
@@ -113,6 +128,9 @@ class FrontierExplorer(Node):
 
     def mode_callback(self, msg):
         self.current_mode = msg.data
+        # re-enable timer if switching into roam after frontier exploration ended
+        if self.current_mode == 'ROAM' and self.explore_timer.is_canceled():
+            self.explore_timer.reset()
 
     # ----------------------------
     # Grid helpers
@@ -217,25 +235,34 @@ class FrontierExplorer(Node):
         if robot_cell is None:
             return None
         rr, rc = robot_cell
-        best_target = None
-        best_dist = float('inf')
 
-        for cluster in clusters:
-            # centroid
-            r_mean = int(sum(r for r, _ in cluster) / len(cluster))
-            c_mean = int(sum(c for _, c in cluster) / len(cluster))
+        def best_from_clusters(cluster_list, clearance):
+            best_target = None
+            best_dist = float('inf')
+            for cluster in cluster_list:
+                r_mean = int(sum(r for r, _ in cluster) / len(cluster))
+                c_mean = int(sum(c for _, c in cluster) / len(cluster))
+                if not self.is_free(r_mean, c_mean):
+                    continue
+                too_close = any(
+                    self.is_occupied(r_mean + dr, c_mean + dc)
+                    for dr in range(-clearance, clearance + 1)
+                    for dc in range(-clearance, clearance + 1)
+                )
+                if too_close:
+                    continue
+                dist = abs(r_mean - rr) + abs(c_mean - rc)
+                if dist < best_dist:
+                    best_dist = dist
+                    best_target = (r_mean, c_mean)
+            return best_target
 
-            # skip if centroid touches obstacles
-            if any(self.is_occupied(nr, nc) for nr, nc in self.neighbors8(r_mean, c_mean)):
-                continue
-
-            # Manhattan distance to robot (fast)
-            dist = abs(r_mean - rr) + abs(c_mean - rc)
-            if dist < best_dist:
-                best_dist = dist
-                best_target = (r_mean, c_mean)
-
-        return best_target
+        # try with preferred clearance first, fall back to neighbours-only check
+        target = best_from_clusters(clusters, clearance=1)
+        if target is None:
+            self.get_logger().warn("Relaxing obstacle clearance to find frontier.")
+            target = best_from_clusters(clusters, clearance=1)
+        return target
 
     # ----------------------------
     # Robot pose update
@@ -257,10 +284,35 @@ class FrontierExplorer(Node):
     # ----------------------------
     # Nav2 Goal
     # ----------------------------
-    def send_goal(self, x: float, y: float, yaw: float = 0.0) -> bool:
-        if not self.nav2_client.wait_for_server(timeout_sec=2.0):
+    def publish_goal_marker(self, x: float, y: float):
+        marker = Marker()
+        marker.header.frame_id = 'map'
+        marker.header.stamp = self.get_clock().now().to_msg()
+        marker.ns = 'frontier_goal'
+        marker.id = 0
+        marker.type = Marker.CYLINDER
+        marker.action = Marker.ADD
+        marker.pose.position.x = x
+        marker.pose.position.y = y
+        marker.pose.position.z = 0.1
+        marker.pose.orientation.w = 1.0
+        marker.scale.x = 0.2
+        marker.scale.y = 0.2
+        marker.scale.z = 0.2
+        marker.color.r = 1.0
+        marker.color.g = 0.5
+        marker.color.b = 0.0
+        marker.color.a = 1.0
+        self.marker_pub.publish(marker)
+
+    def send_goal(self, x: float, y: float):
+        """Send a nav goal asynchronously — non-blocking."""
+        if not self.nav2_client.wait_for_server(timeout_sec=1.0):
             self.get_logger().warn("Nav2 server not available!")
-            return False
+            self._navigating = False
+            return
+
+        yaw = math.atan2(y - self.robot_y, x - self.robot_x)
 
         goal_msg = NavigateToPose.Goal()
         goal_msg.pose.header.frame_id = 'map'
@@ -270,64 +322,133 @@ class FrontierExplorer(Node):
         goal_msg.pose.pose.orientation.z = math.sin(yaw / 2.0)
         goal_msg.pose.pose.orientation.w = math.cos(yaw / 2.0)
 
-        send_goal_future = self.nav2_client.send_goal_async(goal_msg)
-        rclpy.spin_until_future_complete(self, send_goal_future)
-        goal_handle = send_goal_future.result()
-        if not goal_handle.accepted:
-            self.get_logger().warn("Goal rejected!")
-            return False
+        self._pending_goal = (x, y)
+        send_future = self.nav2_client.send_goal_async(goal_msg)
+        send_future.add_done_callback(self._goal_response_cb)
 
-        get_result_future = goal_handle.get_result_async()
-        rclpy.spin_until_future_complete(self, get_result_future)
-        result = get_result_future.result()
-        return result.status == GoalStatus.STATUS_SUCCEEDED
+    def _goal_response_cb(self, future):
+        self._goal_handle = future.result()
+        if not self._goal_handle.accepted:
+            self.get_logger().warn("Goal rejected — skipping.")
+            cell = self.world_to_grid(*self._pending_goal)
+            if cell:
+                self.failed_goals.add(cell)
+            self._navigating = False
+            return
+        self.get_logger().info("Goal accepted, navigating...")
+        # watchdog: if robot hasn't moved within 35s, cancel and blacklist
+        self._watchdog_timer = self.create_timer(35.0, self._watchdog_cb)
+        self._goal_handle.get_result_async().add_done_callback(self._goal_result_cb)
 
-    # ----------------------------
-    # Main exploration loop
-    # ----------------------------
-    def explore(self):
-        self.get_logger().info("Waiting for map and transform...")
+    def _watchdog_cb(self):
+        """Cancel current goal if robot appears stuck after acceptance."""
+        self._watchdog_timer.cancel()
+        if not self._navigating:
+            return
+        self.get_logger().warn("Watchdog: robot not moving after goal acceptance — cancelling.")
+        if self._goal_handle is not None:
+            self._goal_handle.cancel_goal_async()
+        if self.current_mode == 'EXPLORE':
+            cell = self.world_to_grid(*self._pending_goal)
+            if cell:
+                self.failed_goals.add(cell)
+        else:
+            self.get_logger().info("Watchdog cancel due to mode switch — not blacklisting.")
+        self._navigating = False
 
-        # wait until we get map and robot pose
-        while rclpy.ok():
-            rclpy.spin_once(self, timeout_sec=0.1)
-            if self.map_received and self.update_robot_pose():
-                break
+    def _goal_result_cb(self, future):
+        if hasattr(self, '_watchdog_timer'):
+            self._watchdog_timer.cancel()
 
-        self.get_logger().info("Starting frontier exploration.")
+        result = future.result()
+        self._goal_handle = None
 
-        while rclpy.ok():
-            rclpy.spin_once(self, timeout_sec=0.1)
-
-            if self.current_mode != 'EXPLORE':
-                continue
-            if not self.update_robot_pose():
-                continue
-
-            clusters = self.detect_frontiers()
-            # remove clusters containing failed goals
-            clusters = [c for c in clusters if not any(cell in self.failed_goals for cell in c)]
-            if not clusters:
-                self.get_logger().info("No reachable frontiers left. Exploration finished.")
-                break
-
-            target_cell = self.choose_frontier_target(clusters)
-            if target_cell is None:
-                self.get_logger().warn("No valid frontier target")
-                break
-
-            wx, wy = self.grid_to_world(*target_cell)
-            self.get_logger().info(f"Navigating to frontier: ({wx:.2f}, {wy:.2f})")
-
-            success = self.send_goal(wx, wy)
-            if not success:
-                if self.current_mode == 'EXPLORE':
-                    self.get_logger().warn("Nav2 could not reach goal. Adding to failed list.")
-                    self.failed_goals.add(target_cell)
-                else:
-                    self.get_logger().info("Frontier goal interrupted by mode switch. Not marking failed.")
+        if result.status == GoalStatus.STATUS_SUCCEEDED:
+            self.get_logger().info("Goal reached successfully.")
+        else:
+            if self.current_mode == 'EXPLORE':
+                self.get_logger().warn(
+                    f"Goal failed (status {result.status}) — blacklisting."
+                )
+                cell = self.world_to_grid(*self._pending_goal)
+                if cell:
+                    self.failed_goals.add(cell)
             else:
-                self.get_logger().info("Goal reached successfully.")
+                self.get_logger().info(
+                    "Goal interrupted by mode switch (e.g. ArUco). Not marking failed."
+                )
+
+        self._navigating = False
+
+    # ----------------------------
+    # Timer-driven exploration
+    # ----------------------------
+    def explore_once(self):
+        """Called every second by timer. Sends next frontier if not currently navigating."""
+        if self.current_mode not in ('EXPLORE', 'ROAM'):
+            return
+        if self._navigating:
+            return
+        if not self.map_received:
+            return
+        if not self.update_robot_pose():
+            return
+
+        if self.current_mode == 'ROAM':
+            self._send_roam_goal()
+            return
+
+        clusters = self.detect_frontiers()
+        clusters = [c for c in clusters if not any(cell in self.failed_goals for cell in c)]
+        if not clusters:
+            self.get_logger().info("No reachable frontiers left. Exploration finished.")
+            self.exhausted_pub.publish(Bool(data=True))
+            self.explore_timer.cancel()
+            return
+
+        target_cell = self.choose_frontier_target(clusters)
+        if target_cell is None:
+            self.get_logger().warn("No valid frontier target.")
+            return
+
+        wx, wy = self.grid_to_world(*target_cell)
+        self.get_logger().info(f"Navigating to frontier: ({wx:.2f}, {wy:.2f})")
+        self.publish_goal_marker(wx, wy)
+        self._navigating = True
+        self.send_goal(wx, wy)
+
+    def _send_roam_goal(self):
+        """Pick a random free cell far from current position and navigate to it."""
+        if self.map_grid is None:
+            return
+
+        free_cells = list(zip(*np.where(self.map_grid == 0)))
+        if not free_cells:
+            return
+
+        robot_cell = self.world_to_grid(self.robot_x, self.robot_y)
+        if robot_cell is None:
+            return
+        rr, rc = robot_cell
+
+        # filter to cells at least 1m away (20 cells at 0.05m/cell)
+        min_dist = 20
+        candidates = [
+            (r, c) for r, c in free_cells
+            if abs(r - rr) + abs(c - rc) > min_dist
+            and not any(self.is_occupied(r + dr, c + dc)
+                        for dr in range(-2, 3) for dc in range(-2, 3))
+        ]
+
+        if not candidates:
+            candidates = free_cells  # fallback to any free cell
+
+        target = candidates[np.random.randint(len(candidates))]
+        wx, wy = self.grid_to_world(*target)
+        self.get_logger().info(f"Roaming to: ({wx:.2f}, {wy:.2f})")
+        self.publish_goal_marker(wx, wy)
+        self._navigating = True
+        self.send_goal(wx, wy)
 
 # ----------------------------
 # Main entry
@@ -336,7 +457,7 @@ def main(args=None):
     rclpy.init(args=args)
     node = FrontierExplorer()
     try:
-        node.explore()
+        rclpy.spin(node)
     finally:
         node.destroy_node()
         rclpy.shutdown()

@@ -35,6 +35,13 @@ class SupervisorNode(Node):
 
         self.stationary_launch_sent = False
         self.dynamic_launch_sent = False
+        self.missions_completed = 0
+        self.missions_required = 2  # one stationary + one dynamic
+
+        self.frontiers_exhausted = False
+        self.frontiers_sub = self.create_subscription(
+            Bool, '/frontiers_exhausted', self.frontiers_exhausted_callback, 10
+        )
 
         self.timer = self.create_timer(0.2, self.loop)
 
@@ -57,8 +64,48 @@ class SupervisorNode(Node):
             self.launch_dynamic_cmd_pub.publish(Bool(data=True))
             self.dynamic_launch_sent = True
 
-    def target_station_type_callback(self, msg: String):
-        self.target_station_type = msg.data
+    # -------------------------
+    # Callbacks
+    # -------------------------
+    def frontiers_exhausted_callback(self, msg: Bool):
+        if msg.data and self.current_mode == 'EXPLORE':
+            self.frontiers_exhausted = True
+            if self.missions_completed < self.missions_required:
+                self.get_logger().info('Frontiers exhausted but missions incomplete. Switching to ROAM.')
+                self.current_mode = 'ROAM'
+            else:
+                self.get_logger().info('Frontiers exhausted and all missions complete.')
+
+    def coarse_goal_ready_callback(self, msg: Bool):
+        if msg.data and self.current_mode in ('EXPLORE', 'ROAM'):
+            self.get_logger().info('Coarse docking goal ready. Switching to APPROACH.')
+            self.current_mode = 'APPROACH'
+
+    def approach_done_callback(self, msg: Bool):
+        if msg.data and self.current_mode == 'APPROACH':
+            self.get_logger().info('Approach complete. Switching to STATION_ID.')
+            self.current_mode = 'STATION_ID'
+
+    def station_type_callback(self, msg: String):
+        self.station_type = msg.data
+
+    def station_id_done_callback(self, msg: Bool):
+        if not msg.data or self.current_mode != 'STATION_ID':
+            return
+
+        if self.station_type == 'stationary':
+            self.get_logger().info('Station identified as STATIONARY. Switching to DOCK_STATIONARY.')
+            self.current_mode = 'DOCK_STATIONARY'
+        elif self.station_type == 'dynamic':
+            self.get_logger().info('Station identified as DYNAMIC. Switching to GAUGE_DYNAMIC.')
+            self.current_mode = 'GAUGE_DYNAMIC'
+        else:
+            self.get_logger().warn('Station ID done but station type is unknown.')
+
+    def marker_found_callback(self, msg: Bool):
+        if msg.data and self.current_mode == 'EXPLORE':
+            self.get_logger().info('Coarse docking goal ready. Switching to APPROACH.')
+            self.current_mode = 'APPROACH'
 
     def coarse_goal_ready_callback(self, msg: Bool):
         if not msg.data or self.current_mode != 'EXPLORE':
@@ -103,13 +150,16 @@ class SupervisorNode(Node):
         if not msg.data:
             return
 
-        if self.current_mode in ['LAUNCH_STATIONARY', 'LAUNCH_DYNAMIC']:
-            self.get_logger().info('Launch complete. Returning to EXPLORE.')
-            self.current_mode = 'EXPLORE'
-            self.target_station_type = ''
+        if self.current_mode in ['LAUNCH_STATIONARY']:
+            self.missions_completed += 1
+            self.get_logger().info(f'Launch complete ({self.missions_completed}/{self.missions_required}). Returning to EXPLORE.')
+            next_mode = 'ROAM' if self.frontiers_exhausted else 'EXPLORE'
+            self.current_mode = next_mode
+            self.station_type = ''
+            self.measured_x = None
+            self.measured_y = None
             self.stationary_launch_sent = False
             self.dynamic_launch_sent = False
-
 
 def main(args=None):
     rclpy.init(args=args)
