@@ -31,7 +31,6 @@ class SupervisorNode(Node):
 
         self.current_mode = 'EXPLORE'
         self.last_published_mode = None
-
         self.target_station_type = ''
 
         self.stationary_launch_sent = False
