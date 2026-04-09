@@ -2,45 +2,25 @@
 
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import String, Bool, Float32
+from std_msgs.msg import String, Bool
 
 
 class SupervisorNode(Node):
     def __init__(self):
         super().__init__('supervisor_node')
 
-        # -------------------------
-        # Publishers
-        # -------------------------
         self.mode_pub = self.create_publisher(String, '/robot_mode', 10)
         self.launch_stationary_cmd_pub = self.create_publisher(Bool, '/launch_stationary_cmd', 10)
         self.launch_dynamic_cmd_pub = self.create_publisher(Bool, '/launch_dynamic_cmd', 10)
-        self.dynamic_x_pub = self.create_publisher(Float32, '/dynamic_launch_x_sec', 10)
-        self.dynamic_y_pub = self.create_publisher(Float32, '/dynamic_launch_y_sec', 10)
 
-        # -------------------------
-        # Subscribers
-        # -------------------------
         self.coarse_goal_ready_sub = self.create_subscription(
             Bool, '/coarse_goal_ready', self.coarse_goal_ready_callback, 10
         )
+        self.target_station_type_sub = self.create_subscription(
+            String, '/target_station_type', self.target_station_type_callback, 10
+        )
         self.approach_done_sub = self.create_subscription(
             Bool, '/approach_done', self.approach_done_callback, 10
-        )
-        self.station_id_done_sub = self.create_subscription(
-            Bool, '/station_id_done', self.station_id_done_callback, 10
-        )
-        self.station_type_sub = self.create_subscription(
-            String, '/station_type', self.station_type_callback, 10
-        )
-        self.gauge_done_sub = self.create_subscription(
-            Bool, '/gauge_done', self.gauge_done_callback, 10
-        )
-        self.dynamic_x_sub = self.create_subscription(
-            Float32, '/measured_x_sec', self.measured_x_callback, 10
-        )
-        self.dynamic_y_sub = self.create_subscription(
-            Float32, '/measured_y_sec', self.measured_y_callback, 10
         )
         self.docking_done_sub = self.create_subscription(
             Bool, '/docking_done', self.docking_done_callback, 10
@@ -49,15 +29,9 @@ class SupervisorNode(Node):
             Bool, '/launch_done', self.launch_done_callback, 10
         )
 
-        # -------------------------
-        # Internal state
-        # -------------------------
         self.current_mode = 'EXPLORE'
         self.last_published_mode = None
-
-        self.station_type = ''
-        self.measured_x = None
-        self.measured_y = None
+        self.target_station_type = ''
 
         self.stationary_launch_sent = False
         self.dynamic_launch_sent = False
@@ -86,15 +60,7 @@ class SupervisorNode(Node):
             self.stationary_launch_sent = True
 
         if self.current_mode == 'LAUNCH_DYNAMIC' and not self.dynamic_launch_sent:
-            if self.measured_x is None or self.measured_y is None:
-                self.get_logger().warn('Dynamic launch requested but x/y timing not ready yet.')
-                return
-
-            self.dynamic_x_pub.publish(Float32(data=self.measured_x))
-            self.dynamic_y_pub.publish(Float32(data=self.measured_y))
-            self.get_logger().info(
-                f'Publishing dynamic launch timing x={self.measured_x:.2f}, y={self.measured_y:.2f}'
-            )
+            self.get_logger().info('Publishing /launch_dynamic_cmd = True')
             self.launch_dynamic_cmd_pub.publish(Bool(data=True))
             self.dynamic_launch_sent = True
 
@@ -141,36 +107,29 @@ class SupervisorNode(Node):
             self.get_logger().info('Coarse docking goal ready. Switching to APPROACH.')
             self.current_mode = 'APPROACH'
 
-    def approach_done_callback(self, msg: Bool):
-        if msg.data and self.current_mode == 'APPROACH':
-            self.get_logger().info('Approach complete. Switching to STATION_ID.')
-            self.current_mode = 'STATION_ID'
-
-    def station_type_callback(self, msg: String):
-        self.station_type = msg.data
-
-    def station_id_done_callback(self, msg: Bool):
-        if not msg.data or self.current_mode != 'STATION_ID':
+    def coarse_goal_ready_callback(self, msg: Bool):
+        if not msg.data or self.current_mode != 'EXPLORE':
             return
 
-        if self.station_type == 'stationary':
-            self.get_logger().info('Station identified as STATIONARY. Switching to DOCK_STATIONARY.')
-            self.current_mode = 'DOCK_STATIONARY'
-        elif self.station_type == 'dynamic':
-            self.get_logger().info('Station identified as DYNAMIC. Switching to GAUGE_DYNAMIC.')
-            self.current_mode = 'GAUGE_DYNAMIC'
+        if self.target_station_type == 'stationary':
+            self.get_logger().info('Stationary target found. Switching to APPROACH_STATIONARY.')
+            self.current_mode = 'APPROACH_STATIONARY'
+        elif self.target_station_type == 'dynamic':
+            self.get_logger().info('Dynamic target found. Switching to APPROACH_DYNAMIC.')
+            self.current_mode = 'APPROACH_DYNAMIC'
         else:
-            self.get_logger().warn('Station ID done but station type is unknown.')
+            self.get_logger().warn('Coarse goal ready but target station type unknown.')
 
-    def measured_x_callback(self, msg: Float32):
-        self.measured_x = msg.data
+    def approach_done_callback(self, msg: Bool):
+        if not msg.data:
+            return
 
-    def measured_y_callback(self, msg: Float32):
-        self.measured_y = msg.data
+        if self.current_mode == 'APPROACH_STATIONARY':
+            self.get_logger().info('Approach complete. Switching to DOCK_STATIONARY.')
+            self.current_mode = 'DOCK_STATIONARY'
 
-    def gauge_done_callback(self, msg: Bool):
-        if msg.data and self.current_mode == 'GAUGE_DYNAMIC':
-            self.get_logger().info('Dynamic timing gauge complete. Switching to DOCK_DYNAMIC.')
+        elif self.current_mode == 'APPROACH_DYNAMIC':
+            self.get_logger().info('Approach complete. Switching to DOCK_DYNAMIC.')
             self.current_mode = 'DOCK_DYNAMIC'
 
     def docking_done_callback(self, msg: Bool):
