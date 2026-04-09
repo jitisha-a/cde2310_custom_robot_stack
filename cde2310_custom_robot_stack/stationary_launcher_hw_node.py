@@ -36,6 +36,8 @@ class StationaryLauncherHwNode(Node):
         self.DELAY_AFTER_FIRST = 2.0
         self.DELAY_AFTER_SECOND = 8.0
 
+        self.Max_duty = 30 # added new
+
         self.SERVO_MOVE_TIME = 0.5
         self.SERVO_RETURN_SETTLE = 0.2
 
@@ -128,7 +130,8 @@ class StationaryLauncherHwNode(Node):
             while speed < 30:
                 if self.abort_requested:
                     return
-                speed = min(speed + self.RAMP_STEP, 100)
+                speed += self.RAMP_STEP
+                speed = min(speed, self.Max_duty)
                 self.set_motor_speed(speed)
                 self.get_logger().info(f'Motor speed: {speed}%')
                 if not self.sleep_with_abort(self.RAMP_STEP_DELAY):
