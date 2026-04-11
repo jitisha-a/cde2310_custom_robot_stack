@@ -114,11 +114,21 @@ class ArucoPose(Node):
         # robot-specific timing estimates
         # tune these on your real robot TO DO
         # fine docking P-controller gains
-        self.kp_x = 2.5
-        self.kp_z = 0.5 #0.35
+        #self.kp_x = 2.5
+        #self.kp_z = 0.5 #0.35
+        #self.max_linear_speed = 0.05
+        #self.max_angular_speed = 0.30
+        #self.align_first_x_thresh_m = 0.05 #0.03  # if tx is still big, rotate first before moving
+
+        self.kp_x = 1.2
+        self.kp_z = 0.5
         self.max_linear_speed = 0.05
-        self.max_angular_speed = 0.30
-        self.align_first_x_thresh_m = 0.05 #0.03  # if tx is still big, rotate first before moving
+        self.max_angular_speed = 0.08
+        self.align_first_x_thresh_m = 0.05
+
+        self.fine_lost_count = 0
+        self.fine_lost_limit = 5
+
 
         # coarse state memory
         # coarse alignment memory
@@ -232,6 +242,7 @@ class ArucoPose(Node):
 
     def mode_callback(self, msg):
         old_mode = self.current_mode
+        self.fine_lost_count = 0
         self.current_mode = msg.data
     
         if old_mode not in ['DOCK_STATIONARY', 'DOCK_DYNAMIC'] and self.current_mode in ['DOCK_STATIONARY', 'DOCK_DYNAMIC']:
@@ -488,61 +499,66 @@ class ArucoPose(Node):
         return abs(tx - self.target_x_m) <= self.target_x_tol_m
     
 
-    def docking_goal_reached(self, rvec, tvec):
-        return self.z_reached(tvec) and self.x_centered(tvec) and self.heading_aligned(rvec)
-
     def clip(self, val, low, high):
         return max(low, min(high, val))
 
     def heading_aligned(self, rvec):
         R, _ = cv2.Rodrigues(rvec)
         marker_normal = R[:, 2]
-    
         nx = float(marker_normal[0])
         nz = float(marker_normal[2])
-    
         heading_err = math.atan2(nx, nz)
         return abs(heading_err) <= math.radians(5.0)
+
+    def docking_goal_reached(self, rvec, tvec):
+        return (
+            self.z_reached(tvec)
+            and self.x_centered(tvec)
+            and self.heading_aligned(rvec)
+        )
     
 
     def compute_fine_docking_command(self, rvec, tvec):
-        """
-        Fine closed-loop docking command using:
-          - tx from tvec for horizontal centering
-          - tz from tvec for distance
-          - marker normal from rvec for straight-on heading alignment
-    
-        Returns:
-            linear_x, angular_z, tx, tz, heading_err
-        """
-    
         tx = float(tvec[0, 0])
         tz = float(tvec[2, 0])
-    
+
         x_err = tx - self.target_x_m
         z_err = tz - self.target_z_m
-    
-        # ---- convert Rodrigues rvec -> rotation matrix ----
+
+        # Rodrigues vector -> rotation matrix
         R, _ = cv2.Rodrigues(rvec)
-    
-        # Marker's local +Z axis (plane normal) expressed in camera frame
-        marker_normal = R[:, 2]   # shape (3,)
-    
+
+        # marker plane normal in camera frame
+        marker_normal = R[:, 2]
         nx = float(marker_normal[0])
         nz = float(marker_normal[2])
-    
-        # heading_err = 0 when marker faces camera straight-on
-        # positive / negative tells us left-right skew
+
+        # left-right heading error
         heading_err = math.atan2(nx, nz)
-    
-        # ---- angular control uses BOTH x centering and heading alignment ----
-        kp_heading = 1.2   # tune this
-        angular_z = -self.kp_x * x_err - kp_heading * heading_err
-        angular_z = self.clip(angular_z, -self.max_angular_speed, self.max_angular_speed)
-    
-        # ---- only move forward when reasonably centered AND facing straight ----
-        align_first_heading_thresh_rad = math.radians(8.0)
-    
+
+        kp_heading = 0.2
+
+        if abs(x_err) < 0.01:
+            x_err = 0.0
+
+        if abs(heading_err) < math.radians(3.0):
+            heading_err = 0.0
+
+        # prioritize tx centering first
+        if abs(x_err) > 0.03:
+            angular_z = -self.kp_x * x_err
+        else:
+            angular_z = -self.kp_x * x_err - kp_heading * heading_err
+
+        angular_z = self.clip(
+            angular_z,
+            -self.max_angular_speed,
+            self.max_angular_speed
+        )
+
+        align_first_heading_thresh_rad = math.radians(10.0)
+
+        # do not move forward unless centered and reasonably straight
         if abs(x_err) > self.align_first_x_thresh_m or abs(heading_err) > align_first_heading_thresh_rad:
             linear_x = 0.0
         else:
@@ -551,9 +567,9 @@ class ArucoPose(Node):
                 linear_x = self.clip(linear_x, 0.0, self.max_linear_speed)
             else:
                 linear_x = 0.0
-    
+
         return linear_x, angular_z, tx, tz, heading_err
-    
+        
 
     def prepare_coarse_alignment(self, tvec):
         
@@ -845,15 +861,37 @@ class ArucoPose(Node):
         #  - center marker (tx -> 0)
         #  - stop at tz = 0.40 m
         # --------------------------------------------------------
+        # --------------------------------------------------------
+# STATE: FINE_ALIGN_AND_DOCK
+# Fine closed-loop stage:
+#  - center marker (tx -> target_x)
+#  - face marker straight-on using marker normal
+#  - stop at target z
+# --------------------------------------------------------
         if self.state == RobotState.FINE_ALIGN_AND_DOCK:
-            if not found_target or not pose_ok:
-                self.get_logger().warn("Lost target during fine docking. Stop and search again.")
+            if not found_target or not pose_ok or rvec is None or tvec is None:
+                self.fine_lost_count += 1
+                self.get_logger().warn(
+                    f"Lost target during fine docking "
+                    f"({self.fine_lost_count}/{self.fine_lost_limit})"
+                )
+
                 self.stop_motion()
-                self.detect_count = 0
-                self.reset_pose_history()
-                self.state = RobotState.SEARCHING_FOR_ID
+
+                if self.fine_lost_count >= self.fine_lost_limit:
+                    self.get_logger().warn(
+                        "Lost target too long during fine docking. Searching again."
+                    )
+                    self.detect_count = 0
+                    self.reset_pose_history()
+                    self.fine_lost_count = 0
+                    self.state = RobotState.SEARCHING_FOR_ID
+
                 self.draw_debug(frame, corners_list, ids, text=f"STATE: {self.state.name}")
                 return
+
+            # pose valid again
+            self.fine_lost_count = 0
 
             linear_x, angular_z, tx, tz, heading_err = self.compute_fine_docking_command(rvec, tvec)
 
@@ -865,7 +903,9 @@ class ArucoPose(Node):
             )
 
             if self.docking_goal_reached(rvec, tvec):
-                self.get_logger().info("Docking goal reached: centered and at target z.")
+                self.get_logger().info(
+                    "Docking goal reached: centered, aligned, and at target z."
+                )
                 self.stop_motion()
                 self.state = RobotState.DONE
             else:
@@ -877,7 +917,11 @@ class ArucoPose(Node):
                 ids,
                 rvec,
                 tvec,
-                text=f"STATE: {self.state.name} | tx={tx:+.3f} tz={tz:+.3f}"
+                text=(
+                    f"STATE: {self.state.name} | "
+                    f"tx={tx:+.3f} tz={tz:+.3f} "
+                    f"head={math.degrees(heading_err):+.1f}"
+                )
             )
             return
 
