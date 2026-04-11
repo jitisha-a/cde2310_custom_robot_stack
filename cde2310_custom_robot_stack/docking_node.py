@@ -488,44 +488,72 @@ class ArucoPose(Node):
         return abs(tx - self.target_x_m) <= self.target_x_tol_m
     
 
-    def docking_goal_reached(self, tvec):
-        #Final docking condition: centered and at target z
-        return self.z_reached(tvec) and self.x_centered(tvec)
+    def docking_goal_reached(self, rvec, tvec):
+        return self.z_reached(tvec) and self.x_centered(tvec) and self.heading_aligned(rvec)
 
     def clip(self, val, low, high):
         return max(low, min(high, val))
 
-    def compute_fine_docking_command(self, tvec):
-        
-        # Fine closed-loop docking command.
+    def heading_aligned(self, rvec):
+        R, _ = cv2.Rodrigues(rvec)
+        marker_normal = R[:, 2]
+    
+        nx = float(marker_normal[0])
+        nz = float(marker_normal[2])
+    
+        heading_err = math.atan2(nx, nz)
+        return abs(heading_err) <= math.radians(5.0)
+    
 
-        # angular_z <- from tx
-        # linear_x  <- from tz
+    def compute_fine_docking_command(self, rvec, tvec):
+    """
+    Fine closed-loop docking command using:
+      - tx from tvec for horizontal centering
+      - tz from tvec for distance
+      - marker normal from rvec for straight-on heading alignment
 
-        # If tx still large, rotate first before moving forward.
-        
-        tx = float(tvec[0, 0])
-        tz = float(tvec[2, 0])
+    Returns:
+        linear_x, angular_z, tx, tz, heading_err
+    """
 
-        x_err = tx - self.target_x_m
-        z_err = tz - self.target_z_m
+    tx = float(tvec[0, 0])
+    tz = float(tvec[2, 0])
 
-        # If marker is on right (tx > 0), robot should usually rotate right.
-        # If your robot turns wrong direction, flip this sign.
-        angular_z = -self.kp_x * x_err
-        angular_z = self.clip(angular_z, -self.max_angular_speed, self.max_angular_speed)
+    x_err = tx - self.target_x_m
+    z_err = tz - self.target_z_m
 
-        # If marker still too off-center, rotate first and do not move forward yet
-        if abs(x_err) > self.align_first_x_thresh_m:
-            linear_x = 0.0
+    # ---- convert Rodrigues rvec -> rotation matrix ----
+    R, _ = cv2.Rodrigues(rvec)
+
+    # Marker's local +Z axis (plane normal) expressed in camera frame
+    marker_normal = R[:, 2]   # shape (3,)
+
+    nx = float(marker_normal[0])
+    nz = float(marker_normal[2])
+
+    # heading_err = 0 when marker faces camera straight-on
+    # positive / negative tells us left-right skew
+    heading_err = math.atan2(nx, nz)
+
+    # ---- angular control uses BOTH x centering and heading alignment ----
+    kp_heading = 1.2   # tune this
+    angular_z = -self.kp_x * x_err - kp_heading * heading_err
+    angular_z = self.clip(angular_z, -self.max_angular_speed, self.max_angular_speed)
+
+    # ---- only move forward when reasonably centered AND facing straight ----
+    align_first_heading_thresh_rad = math.radians(8.0)
+
+    if abs(x_err) > self.align_first_x_thresh_m or abs(heading_err) > align_first_heading_thresh_rad:
+        linear_x = 0.0
+    else:
+        if z_err > 0.0:
+            linear_x = self.kp_z * z_err
+            linear_x = self.clip(linear_x, 0.0, self.max_linear_speed)
         else:
-            if z_err > 0.0:
-                linear_x = self.kp_z * z_err
-                linear_x = self.clip(linear_x, 0.0, self.max_linear_speed)
-            else:
-                linear_x = 0.0
+            linear_x = 0.0
 
-        return linear_x, angular_z, tx, tz
+    return linear_x, angular_z, tx, tz, heading_err
+    
 
     def prepare_coarse_alignment(self, tvec):
         
@@ -827,15 +855,16 @@ class ArucoPose(Node):
                 self.draw_debug(frame, corners_list, ids, text=f"STATE: {self.state.name}")
                 return
 
-            linear_x, angular_z, tx, tz = self.compute_fine_docking_command(tvec)
+            linear_x, angular_z, tx, tz, heading_err = self.compute_fine_docking_command(rvec, tvec)
 
             self.get_logger().info(
                 f"FINE_ALIGN_AND_DOCK | "
-                f"tx={tx:+.3f} m, tz={tz:+.3f} m | "
+                f"tx={tx:+.3f} m, tz={tz:+.3f} m, "
+                f"heading_err={math.degrees(heading_err):+.2f} deg | "
                 f"cmd.linear.x={linear_x:+.3f}, cmd.angular.z={angular_z:+.3f}"
             )
 
-            if self.docking_goal_reached(tvec):
+            if self.docking_goal_reached(rvec, tvec):
                 self.get_logger().info("Docking goal reached: centered and at target z.")
                 self.stop_motion()
                 self.state = RobotState.DONE
