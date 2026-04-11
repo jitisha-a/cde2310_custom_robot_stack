@@ -46,10 +46,10 @@ class MarkerMapperNode(Node):
         self.required_samples = 5
         self.goal_history = deque(maxlen=self.required_samples)
         self.current_candidate_id = None
-        self.standoff_distance_m = 0.40
+        self.standoff_distance_m = 0.35
 
-        self.camera_x_offset_m = 0.07
-        self.camera_y_offset_m = 0.00
+        self.camera_x_offset_m = 0.05
+        self.camera_y_offset_m = 0.15
 
         pkg_share = get_package_share_directory('cde2310_custom_robot_stack')
         self.calib_file = os.path.join(pkg_share, 'config', 'camera_calib_640x480.npz')
@@ -94,7 +94,7 @@ class MarkerMapperNode(Node):
 
     def mode_callback(self, msg):
         self.current_mode = msg.data
-        if self.current_mode != 'EXPLORE':
+        if self.current_mode not in ('EXPLORE', 'ROAM'):
             self.goal_history.clear()
             self.current_candidate_id = None
 
@@ -169,7 +169,7 @@ class MarkerMapperNode(Node):
         self.get_logger().info(f'Marker {msg.data} permanently marked as serviced and will be ignored.')
     
     def image_callback(self, msg):
-        if self.current_mode != 'EXPLORE':
+        if self.current_mode not in ('EXPLORE', 'ROAM'):
             return
 
         frame = self.decode_compressed(msg)

@@ -86,18 +86,28 @@ class SupervisorNode(Node):
     def coarse_goal_ready_callback(self, msg: Bool):
         if not msg.data or self.current_mode not in ('EXPLORE', 'ROAM'):
             return
+        # store pending — marker ID may arrive in the same or next spin cycle
+        self._coarse_goal_pending = True
 
-        # derive station type from marker ID directly — don't wait for STATION_ID
+    def target_station_marker_callback(self, msg: Int32):
+        self.target_station_marker_id = msg.data
+        # process any pending coarse goal now that we have the marker ID
+        if getattr(self, '_coarse_goal_pending', False):
+            self._coarse_goal_pending = False
+            self._process_coarse_goal()
+
+    def _process_coarse_goal(self):
+        if self.current_mode not in ('EXPLORE', 'ROAM'):
+            return
         if self.target_station_marker_id == 23:
             inferred_type = 'stationary'
         elif self.target_station_marker_id == 25:
             inferred_type = 'dynamic'
         else:
             self.get_logger().warn(
-                f'Coarse goal ready but unknown marker ID {self.target_station_marker_id}. Cannot switch mode.'
+                f'Coarse goal ready but unknown marker ID {self.target_station_marker_id}.'
             )
             return
-
         self.target_station_type = inferred_type
         next_mode = 'APPROACH_STATIONARY' if inferred_type == 'stationary' else 'APPROACH_DYNAMIC'
         self.get_logger().info(
@@ -134,9 +144,6 @@ class SupervisorNode(Node):
             self.get_logger().info('Docking complete. Switching to LAUNCH_DYNAMIC.')
             self.current_mode = 'LAUNCH_DYNAMIC'
             self.dynamic_launch_sent = False
-
-    def target_station_marker_callback(self, msg: Int32):
-        self.target_station_marker_id = msg.data
 
     def launch_done_callback(self, msg: Bool):
         if not msg.data:
