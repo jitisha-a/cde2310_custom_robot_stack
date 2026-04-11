@@ -506,53 +506,53 @@ class ArucoPose(Node):
     
 
     def compute_fine_docking_command(self, rvec, tvec):
-    """
-    Fine closed-loop docking command using:
-      - tx from tvec for horizontal centering
-      - tz from tvec for distance
-      - marker normal from rvec for straight-on heading alignment
-
-    Returns:
-        linear_x, angular_z, tx, tz, heading_err
-    """
-
-    tx = float(tvec[0, 0])
-    tz = float(tvec[2, 0])
-
-    x_err = tx - self.target_x_m
-    z_err = tz - self.target_z_m
-
-    # ---- convert Rodrigues rvec -> rotation matrix ----
-    R, _ = cv2.Rodrigues(rvec)
-
-    # Marker's local +Z axis (plane normal) expressed in camera frame
-    marker_normal = R[:, 2]   # shape (3,)
-
-    nx = float(marker_normal[0])
-    nz = float(marker_normal[2])
-
-    # heading_err = 0 when marker faces camera straight-on
-    # positive / negative tells us left-right skew
-    heading_err = math.atan2(nx, nz)
-
-    # ---- angular control uses BOTH x centering and heading alignment ----
-    kp_heading = 1.2   # tune this
-    angular_z = -self.kp_x * x_err - kp_heading * heading_err
-    angular_z = self.clip(angular_z, -self.max_angular_speed, self.max_angular_speed)
-
-    # ---- only move forward when reasonably centered AND facing straight ----
-    align_first_heading_thresh_rad = math.radians(8.0)
-
-    if abs(x_err) > self.align_first_x_thresh_m or abs(heading_err) > align_first_heading_thresh_rad:
-        linear_x = 0.0
-    else:
-        if z_err > 0.0:
-            linear_x = self.kp_z * z_err
-            linear_x = self.clip(linear_x, 0.0, self.max_linear_speed)
-        else:
+        """
+        Fine closed-loop docking command using:
+          - tx from tvec for horizontal centering
+          - tz from tvec for distance
+          - marker normal from rvec for straight-on heading alignment
+    
+        Returns:
+            linear_x, angular_z, tx, tz, heading_err
+        """
+    
+        tx = float(tvec[0, 0])
+        tz = float(tvec[2, 0])
+    
+        x_err = tx - self.target_x_m
+        z_err = tz - self.target_z_m
+    
+        # ---- convert Rodrigues rvec -> rotation matrix ----
+        R, _ = cv2.Rodrigues(rvec)
+    
+        # Marker's local +Z axis (plane normal) expressed in camera frame
+        marker_normal = R[:, 2]   # shape (3,)
+    
+        nx = float(marker_normal[0])
+        nz = float(marker_normal[2])
+    
+        # heading_err = 0 when marker faces camera straight-on
+        # positive / negative tells us left-right skew
+        heading_err = math.atan2(nx, nz)
+    
+        # ---- angular control uses BOTH x centering and heading alignment ----
+        kp_heading = 1.2   # tune this
+        angular_z = -self.kp_x * x_err - kp_heading * heading_err
+        angular_z = self.clip(angular_z, -self.max_angular_speed, self.max_angular_speed)
+    
+        # ---- only move forward when reasonably centered AND facing straight ----
+        align_first_heading_thresh_rad = math.radians(8.0)
+    
+        if abs(x_err) > self.align_first_x_thresh_m or abs(heading_err) > align_first_heading_thresh_rad:
             linear_x = 0.0
-
-    return linear_x, angular_z, tx, tz, heading_err
+        else:
+            if z_err > 0.0:
+                linear_x = self.kp_z * z_err
+                linear_x = self.clip(linear_x, 0.0, self.max_linear_speed)
+            else:
+                linear_x = 0.0
+    
+        return linear_x, angular_z, tx, tz, heading_err
     
 
     def prepare_coarse_alignment(self, tvec):
