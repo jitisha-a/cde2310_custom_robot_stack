@@ -163,12 +163,12 @@ class ArucoPose(Node):
         self.coarse_shift_gain = 0.5
         self.coarse_shift_max_m = 0.20
         self.coarse_forward_speed = 0.04
-        self.coarse_rotate_speed = 0.3
+        self.coarse_rotate_speed = 0.4
         
         # fine docking PID uses tx and tz only
         self.kp_x = 1.0
-        kp_heading = 0.35
-        self.kp_z = 0.4
+        self.kp_heading = 0.35
+        self.kp_z = 0.6
         self.max_angular_speed = 0.08
         self.max_linear_speed = 0.04
         
@@ -289,7 +289,7 @@ class ArucoPose(Node):
     def mode_callback(self, msg):
         old_mode = self.current_mode
         self.current_mode = msg.data
-    
+
         if old_mode not in ['DOCK_STATIONARY', 'DOCK_DYNAMIC'] and self.current_mode in ['DOCK_STATIONARY', 'DOCK_DYNAMIC']:
             self.get_logger().info(f'Entering {self.current_mode}. Resetting docking FSM.')
             self.state = RobotState.SEARCHING_FOR_ID
@@ -297,7 +297,7 @@ class ArucoPose(Node):
             self.done_published = False
             self.reset_pose_history()
             self.turn_active = False
-    
+
             self.coarse_dir_sign = 0
             self.coarse_shift_distance_m = 0.0
             self.coarse_align_count = 0
@@ -593,10 +593,8 @@ class ArucoPose(Node):
         if abs(heading_err) < math.radians(2.0):
             heading_err = 0.0
     
-        kp_heading = 0.35
-    
         # angular control uses BOTH tx and heading
-        angular_z = -self.kp_x * x_err - kp_heading * heading_err
+        angular_z = -self.kp_x * x_err - self.kp_heading * heading_err
         angular_z = self.clip(angular_z, -self.max_angular_speed, self.max_angular_speed)
     
         if abs(angular_z) < 0.02:
@@ -787,8 +785,8 @@ class ArucoPose(Node):
                 self.get_logger().info("Pose not stable yet. Move forward and keep trying.")
                 self.state = RobotState.MOVING_FORWARD_FOR_STABLE_POSE
             
-                        self.draw_debug(frame, corners_list, ids, rvec, tvec, text=f"STATE: {self.state.name}")
-                        return
+            self.draw_debug(frame, corners_list, ids, rvec, tvec, text=f"STATE: {self.state.name}")
+            return
     
     # ###### STATE: MOVING_FORWARD_FOR_STABLE_POSE ######
     #Small forward motion to try to get a cleaner view / stable pose
@@ -820,7 +818,7 @@ class ArucoPose(Node):
         
         if self.state == RobotState.DECIDE_DOCKING_STRATEGY:
             self.stop_motion()
-        
+
             if not found_target or not pose_ok or rvec is None or tvec is None:
                 self.get_logger().warn("Lost target before docking strategy decision. Searching again.")
                 self.detect_count = 0
@@ -828,19 +826,19 @@ class ArucoPose(Node):
                 self.state = RobotState.SEARCHING_FOR_ID
                 self.draw_debug(frame, corners_list, ids, text=f"STATE: {self.state.name}")
                 return
-        
+
             tx = float(tvec[0, 0])
             tz = float(tvec[2, 0])
             heading_err = self.compute_heading_error(rvec)
             heading_err_deg = math.degrees(heading_err)
-        
+
             self.get_logger().info(
                 f"DECIDE_DOCKING_STRATEGY | "
                 f"tx={tx:+.3f} m, tz={tz:+.3f} m, "
                 f"heading_err={heading_err_deg:+.2f} deg | "
                 f"coarse_count={self.coarse_align_count}/{self.max_coarse_aligns}"
             )
-        
+
             # hard lockout after max coarse cycles
             if self.coarse_align_count >= self.max_coarse_aligns:
                 self.get_logger().info(
@@ -850,20 +848,19 @@ class ArucoPose(Node):
                 self.draw_debug(frame, corners_list, ids, rvec, tvec, text=f"STATE: {self.state.name}")
                 return
 
-    # decision based only on heading error
-    if abs(heading_err_deg) <= self.coarse_heading_thresh_deg:
-        self.get_logger().info(
-            "Heading error already small. Skip coarse alignment and go straight to fine docking."
-        )
-        self.state = RobotState.FINE_ALIGN_AND_DOCK
-    else:
-        self.prepare_coarse_alignment(rvec, tvec)
-        self.state = RobotState.COARSE_ALIGN_ROTATE_1
-        self.get_logger().info("Heading error is large. Starting coarse side-shift alignment.")
+            # normal decision if coarse is still allowed
+            if abs(heading_err_deg) <= self.coarse_heading_thresh_deg:
+                self.get_logger().info(
+                    "Heading error already small. Skip coarse alignment and go straight to fine docking."
+                )
+                self.state = RobotState.FINE_ALIGN_AND_DOCK
+            else:
+                self.prepare_coarse_alignment(rvec, tvec)
+                self.state = RobotState.COARSE_ALIGN_ROTATE_1
+                self.get_logger().info("Heading error is large. Starting coarse side-shift alignment.")
 
-    self.draw_debug(frame, corners_list, ids, rvec, tvec, text=f"STATE: {self.state.name}")
-    return
-        
+            self.draw_debug(frame, corners_list, ids, rvec, tvec, text=f"STATE: {self.state.name}")
+            return
 
         # STATE: COARSE_ALIGN_ROTATE_1
         # Rotate 90 deg toward side we want to shift
@@ -938,14 +935,13 @@ class ArucoPose(Node):
                     self.draw_debug(frame, corners_list, ids, rvec, tvec, text=f"STATE: {self.state.name}")
                     return
 
-            # Keep updating turn until done
             if self.update_odom_turn():
                 self.coarse_align_count += 1
                 self.get_logger().info(
                     f"Finished coarse alignment cycle "
                     f"{self.coarse_align_count}/{self.max_coarse_aligns}"
                 )
-            
+
                 self.reset_pose_history()
                 self.state = RobotState.CHECKING_INITIAL_POSE_STABILITY
                 self.get_logger().info("Finished coarse rotate 2. Reacquire stable pose, then fine docking.")
