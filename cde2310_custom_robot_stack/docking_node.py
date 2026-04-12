@@ -149,23 +149,22 @@ class ArucoPose(Node):
         #  -1 = locked to left
         self.coarse_locked_dir_sign = 0
 
-        # added newsss
         self.target_z_m = 0.312
         self.target_z_tol_m = 0.03
         
         self.target_x_m = 0.05
         self.target_x_tol_m = 0.015
         
-        # coarse decision now mainly from heading angle
+        # coarse decision from heading only
         self.coarse_heading_thresh_deg = 15.0
         
-        # coarse shift from angle
+        # coarse shift = gain * tz * tan(theta)
         self.coarse_shift_gain = 0.5
         self.coarse_shift_max_m = 0.20
         self.coarse_forward_speed = 0.04
         self.coarse_rotate_speed = 0.3
         
-        # fine docking PID (tx, tz only)
+        # fine docking PID uses tx and tz only
         self.kp_x = 1.0
         self.kp_z = 0.4
         self.max_linear_speed = 0.04
@@ -174,6 +173,11 @@ class ArucoPose(Node):
         
         # final heading requirement for DONE
         self.final_heading_tol_deg = 6.0
+        
+        # coarse alignment memory / limits
+        self.coarse_align_count = 0
+        self.max_coarse_aligns = 2
+        self.coarse_locked_dir_sign = 0
 
         # odometry state
         # yaw will come from /odom
@@ -218,8 +222,8 @@ class ArucoPose(Node):
         
         self.mode_sub = self.create_subscription(
             String,
-            '/robot_',
-            self._callback,
+            '/robot_mode',
+            self.mode_callback,
             10
         )
 
@@ -287,6 +291,7 @@ class ArucoPose(Node):
             self.done_published = False
             self.reset_pose_history()
             self.turn_active = False
+    
             self.coarse_dir_sign = 0
             self.coarse_shift_distance_m = 0.0
             self.coarse_align_count = 0
@@ -556,11 +561,7 @@ class ArucoPose(Node):
     def compute_heading_error(self, rvec):
         """
         Returns heading error in radians.
-    
-        Uses the marker normal (marker local +Z axis) expressed in camera frame.
-        We look at its x-z projection relative to the camera forward axis.
-    
-        Straight-on should be near 0 rad.
+        Straight-on should be near 0.
         """
         R, _ = cv2.Rodrigues(rvec)
         marker_normal = R[:, 2]
@@ -568,18 +569,12 @@ class ArucoPose(Node):
         nx = float(marker_normal[0])
         nz = float(marker_normal[2])
     
-        # For your setup, this should make straight-on close to 0 deg.
         heading_err = math.atan2(nx, -nz)
         return heading_err
         
     def compute_fine_docking_command(self, tvec):
         """
-        Fine closed-loop docking command using:
-          - tx for horizontal centering
-          - tz for forward distance
-    
-        No heading term here.
-        Heading is handled by coarse alignment and final DONE check.
+        Fine docking PID uses only tx and tz.
         """
         tx = float(tvec[0, 0])
         tz = float(tvec[2, 0])
@@ -594,11 +589,10 @@ class ArucoPose(Node):
         angular_z = -self.kp_x * x_err
         angular_z = self.clip(angular_z, -self.max_angular_speed, self.max_angular_speed)
     
-        # ignore tiny useless turn commands
         if abs(angular_z) < 0.02:
             angular_z = 0.0
     
-        # rotate first if still not centered enough
+        # rotate first until reasonably centered
         if abs(x_err) > self.align_first_x_thresh_m:
             linear_x = 0.0
         else:
@@ -613,11 +607,12 @@ class ArucoPose(Node):
         return linear_x, angular_z, tx, tz
             
 
-    def prepare_coarse_alignment(self, tvec):
-        tx = float(tvec[0, 0])
+    def prepare_coarse_alignment(self, rvec, tvec):
+        heading_err = self.compute_heading_error(rvec)
+        tz = float(tvec[2, 0])
     
-        # fresh direction proposal from current measurement
-        proposed_dir = +1 if tx > 0.0 else -1
+        # fresh direction proposal from heading error
+        proposed_dir = +1 if heading_err > 0.0 else -1
     
         # lock direction after first coarse choice
         if self.coarse_locked_dir_sign == 0:
@@ -633,14 +628,14 @@ class ArucoPose(Node):
                 f"ignoring new proposed direction {proposed_dir:+d}"
             )
     
-        self.coarse_shift_distance_m = min(
-            self.coarse_shift_scale * abs(tx),
-            self.coarse_shift_max_m
-        )
+        # shift distance = gain * tz * tan(theta), clipped
+        est_shift = self.coarse_shift_gain * tz * abs(math.tan(heading_err))
+        self.coarse_shift_distance_m = min(est_shift, self.coarse_shift_max_m)
     
         self.get_logger().info(
             f"Preparing coarse alignment | "
-            f"tx={tx:+.3f} m | "
+            f"heading_err={math.degrees(heading_err):+.2f} deg | "
+            f"tz={tz:.3f} m | "
             f"dir_sign={self.coarse_dir_sign:+d} | "
             f"shift_distance={self.coarse_shift_distance_m:.3f} m"
         )
@@ -762,9 +757,9 @@ class ArucoPose(Node):
             else:
                 self.get_logger().info("Pose not stable yet. Move forward and keep trying.")
                 self.state = RobotState.MOVING_FORWARD_FOR_STABLE_POSE
-
-            self.draw_debug(frame, corners_list, ids, rvec, tvec, text=f"STATE: {self.state.name}")
-            return
+            
+                        self.draw_debug(frame, corners_list, ids, rvec, tvec, text=f"STATE: {self.state.name}")
+                        return
     
     # ###### STATE: MOVING_FORWARD_FOR_STABLE_POSE ######
     #Small forward motion to try to get a cleaner view / stable pose
@@ -797,7 +792,7 @@ class ArucoPose(Node):
         if self.state == RobotState.DECIDE_DOCKING_STRATEGY:
             self.stop_motion()
         
-            if not found_target or not pose_ok:
+            if not found_target or not pose_ok or rvec is None or tvec is None:
                 self.get_logger().warn("Lost target before docking strategy decision. Searching again.")
                 self.detect_count = 0
                 self.reset_pose_history()
@@ -807,9 +802,13 @@ class ArucoPose(Node):
         
             tx = float(tvec[0, 0])
             tz = float(tvec[2, 0])
+            heading_err = self.compute_heading_error(rvec)
+            heading_err_deg = math.degrees(heading_err)
         
             self.get_logger().info(
-                f"DECIDE_DOCKING_STRATEGY | tx={tx:+.3f} m, tz={tz:+.3f} m | "
+                f"DECIDE_DOCKING_STRATEGY | "
+                f"tx={tx:+.3f} m, tz={tz:+.3f} m, "
+                f"heading_err={heading_err_deg:+.2f} deg | "
                 f"coarse_count={self.coarse_align_count}/{self.max_coarse_aligns}"
             )
         
@@ -821,19 +820,20 @@ class ArucoPose(Node):
                 self.state = RobotState.FINE_ALIGN_AND_DOCK
                 self.draw_debug(frame, corners_list, ids, rvec, tvec, text=f"STATE: {self.state.name}")
                 return
-        
-            if abs(tx) <= self.tx_coarse_thresh_m:
-                self.get_logger().info(
-                    "tx is already small. Skip coarse alignment and go straight to fine docking."
-                )
-                self.state = RobotState.FINE_ALIGN_AND_DOCK
-            else:
-                self.prepare_coarse_alignment(tvec)
-                self.state = RobotState.COARSE_ALIGN_ROTATE_1
-                self.get_logger().info("tx is large. Starting coarse side-shift alignment.")
-        
-            self.draw_debug(frame, corners_list, ids, rvec, tvec, text=f"STATE: {self.state.name}")
-            return
+
+    # decision based only on heading error
+    if abs(heading_err_deg) <= self.coarse_heading_thresh_deg:
+        self.get_logger().info(
+            "Heading error already small. Skip coarse alignment and go straight to fine docking."
+        )
+        self.state = RobotState.FINE_ALIGN_AND_DOCK
+    else:
+        self.prepare_coarse_alignment(rvec, tvec)
+        self.state = RobotState.COARSE_ALIGN_ROTATE_1
+        self.get_logger().info("Heading error is large. Starting coarse side-shift alignment.")
+
+    self.draw_debug(frame, corners_list, ids, rvec, tvec, text=f"STATE: {self.state.name}")
+    return
         
 
         # STATE: COARSE_ALIGN_ROTATE_1
@@ -978,7 +978,6 @@ class ArucoPose(Node):
                 )
             )
             return
-
 
             # ######## STATE: DONE #########
         if self.state == RobotState.DONE:
