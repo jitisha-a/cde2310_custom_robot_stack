@@ -68,6 +68,7 @@ class RobotState(Enum):
 
     # fine stage = closed-loop centering + docking
     FINE_ALIGN_AND_DOCK = auto()
+    FINAL_HEADING_ALIGN = auto()
 
     DONE = auto()
 
@@ -166,10 +167,10 @@ class ArucoPose(Node):
         
         # fine docking PID uses tx and tz only
         self.kp_x = 1.0
+        kp_heading = 0.35
         self.kp_z = 0.4
-        self.max_linear_speed = 0.04
         self.max_angular_speed = 0.08
-        self.align_first_x_thresh_m = 0.02
+        self.max_linear_speed = 0.04
         
         # final heading requirement for DONE
         self.final_heading_tol_deg = 6.0
@@ -178,6 +179,11 @@ class ArucoPose(Node):
         self.coarse_align_count = 0
         self.max_coarse_aligns = 2
         self.coarse_locked_dir_sign = 0
+
+
+        self.kp_heading_final = 0.8
+        self.max_heading_align_speed = 0.10
+        self.final_heading_done_deg = 5.0
 
         # odometry state
         # yaw will come from /odom
@@ -572,28 +578,35 @@ class ArucoPose(Node):
         heading_err = math.atan2(nx, -nz)
         return heading_err
         
-    def compute_fine_docking_command(self, tvec):
-        """
-        Fine docking PID uses only tx and tz.
-        """
+    def compute_fine_docking_command(self, rvec, tvec):
         tx = float(tvec[0, 0])
         tz = float(tvec[2, 0])
     
         x_err = tx - self.target_x_m
         z_err = tz - self.target_z_m
+        heading_err = self.compute_heading_error(rvec)
     
-        # small deadband to reduce twitching
+        # small deadbands to reduce twitching
         if abs(x_err) < 0.008:
             x_err = 0.0
     
-        angular_z = -self.kp_x * x_err
+        if abs(heading_err) < math.radians(2.0):
+            heading_err = 0.0
+    
+        kp_heading = 0.35
+    
+        # angular control uses BOTH tx and heading
+        angular_z = -self.kp_x * x_err - kp_heading * heading_err
         angular_z = self.clip(angular_z, -self.max_angular_speed, self.max_angular_speed)
     
         if abs(angular_z) < 0.02:
             angular_z = 0.0
     
-        # rotate first until reasonably centered
-        if abs(x_err) > self.align_first_x_thresh_m:
+        # only move forward when reasonably aligned
+        x_gate = 0.02
+        heading_gate = math.radians(8.0)
+    
+        if abs(x_err) > x_gate or abs(heading_err) > heading_gate:
             linear_x = 0.0
         else:
             if z_err > 0.0:
@@ -604,7 +617,23 @@ class ArucoPose(Node):
             else:
                 linear_x = 0.0
     
-        return linear_x, angular_z, tx, tz
+        return linear_x, angular_z, tx, tz, heading_err
+
+
+    def compute_final_heading_command(self, rvec):
+        heading_err = self.compute_heading_error(rvec)
+    
+        angular_z = -self.kp_heading_final * heading_err
+        angular_z = self.clip(
+            angular_z,
+            -self.max_heading_align_speed,
+            self.max_heading_align_speed
+        )
+    
+        if abs(angular_z) < 0.02:
+            angular_z = 0.0
+    
+        return angular_z, heading_err
             
 
     def prepare_coarse_alignment(self, rvec, tvec):
@@ -948,8 +977,7 @@ class ArucoPose(Node):
                 self.draw_debug(frame, corners_list, ids, text=f"STATE: {self.state.name}")
                 return
         
-            linear_x, angular_z, tx, tz = self.compute_fine_docking_command(tvec)
-            heading_err = self.compute_heading_error(rvec)
+            linear_x, angular_z, tx, tz, heading_err = self.compute_fine_docking_command(rvec, tvec)
         
             self.get_logger().info(
                 f"FINE_ALIGN_AND_DOCK | "
@@ -958,10 +986,15 @@ class ArucoPose(Node):
                 f"cmd.linear.x={linear_x:+.3f}, cmd.angular.z={angular_z:+.3f}"
             )
         
-            if self.docking_goal_reached(rvec, tvec):
-                self.get_logger().info("Docking goal reached: centered, aligned, and at target z.")
+            x_ok = self.x_centered(tvec)
+            z_ok = self.z_reached(tvec)
+            
+            if x_ok and z_ok:
+                self.get_logger().info(
+                    "Position reached. Switching to final heading alignment."
+                )
                 self.stop_motion()
-                self.state = RobotState.DONE
+                self.state = RobotState.FINAL_HEADING_ALIGN
             else:
                 self.publish_cmd(linear_x, angular_z)
         
@@ -974,6 +1007,45 @@ class ArucoPose(Node):
                 text=(
                     f"STATE: {self.state.name} | "
                     f"tx={tx:+.3f} tz={tz:+.3f} "
+                    f"head={math.degrees(heading_err):+.1f}"
+                )
+            )
+            return
+
+
+        if self.state == RobotState.FINAL_HEADING_ALIGN:
+            if not found_target or not pose_ok or rvec is None or tvec is None:
+                self.get_logger().warn("Lost target during final heading align. Stop and search again.")
+                self.stop_motion()
+                self.detect_count = 0
+                self.reset_pose_history()
+                self.state = RobotState.SEARCHING_FOR_ID
+                self.draw_debug(frame, corners_list, ids, text=f"STATE: {self.state.name}")
+                return
+        
+            angular_z, heading_err = self.compute_final_heading_command(rvec)
+        
+            self.get_logger().info(
+                f"FINAL_HEADING_ALIGN | "
+                f"heading_err={math.degrees(heading_err):+.2f} deg | "
+                f"cmd.angular.z={angular_z:+.3f}"
+            )
+        
+            if abs(math.degrees(heading_err)) <= self.final_heading_done_deg:
+                self.get_logger().info("Final heading aligned. Docking complete.")
+                self.stop_motion()
+                self.state = RobotState.DONE
+            else:
+                self.publish_cmd(0.0, angular_z)
+        
+            self.draw_debug(
+                frame,
+                corners_list,
+                ids,
+                rvec,
+                tvec,
+                text=(
+                    f"STATE: {self.state.name} | "
                     f"head={math.degrees(heading_err):+.1f}"
                 )
             )
