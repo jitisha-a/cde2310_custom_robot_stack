@@ -166,9 +166,9 @@ class ArucoPose(Node):
         self.coarse_rotate_speed = 0.4
         
         # fine docking PID uses tx and tz only
-        self.kp_x = 1.0
+        self.kp_x = 2.5
         self.kp_heading = 0.35
-        self.kp_z = 0.6
+        self.kp_z = 0.5
         self.max_angular_speed = 0.08
         self.max_linear_speed = 0.04
         
@@ -579,43 +579,36 @@ class ArucoPose(Node):
         return heading_err
         
     def compute_fine_docking_command(self, rvec, tvec):
+        
+        # Fine closed-loop docking command.
+
+        # angular_z <- from tx
+        # linear_x  <- from tz
+
+        # If tx still large, rotate first before moving forward.
+        
         tx = float(tvec[0, 0])
         tz = float(tvec[2, 0])
-    
+
         x_err = tx - self.target_x_m
         z_err = tz - self.target_z_m
-        heading_err = self.compute_heading_error(rvec)
-    
-        # small deadbands to reduce twitching
-        if abs(x_err) < 0.008:
-            x_err = 0.0
-    
-        if abs(heading_err) < math.radians(2.0):
-            heading_err = 0.0
-    
-        # angular control uses BOTH tx and heading
-        angular_z = -self.kp_x * x_err - self.kp_heading * heading_err
+
+        # If marker is on right (tx > 0), robot should usually rotate right.
+        # If your robot turns wrong direction, flip this sign.
+        angular_z = -self.kp_x * x_err
         angular_z = self.clip(angular_z, -self.max_angular_speed, self.max_angular_speed)
-    
-        if abs(angular_z) < 0.02:
-            angular_z = 0.0
-    
-        # only move forward when reasonably aligned
-        x_gate = 0.02
-        heading_gate = math.radians(8.0)
-    
-        if abs(x_err) > x_gate or abs(heading_err) > heading_gate:
+
+        # If marker still too off-center, rotate first and do not move forward yet
+        if abs(x_err) > self.align_first_x_thresh_m:
             linear_x = 0.0
         else:
             if z_err > 0.0:
                 linear_x = self.kp_z * z_err
-                if z_err < 0.10:
-                    linear_x = min(linear_x, 0.02)
                 linear_x = self.clip(linear_x, 0.0, self.max_linear_speed)
             else:
                 linear_x = 0.0
-    
-        return linear_x, angular_z, tx, tz, heading_err
+
+        return linear_x, angular_z, tx, tz
 
 
     def compute_final_heading_command(self, rvec):
@@ -932,7 +925,7 @@ class ArucoPose(Node):
             
                 self.reset_pose_history()
                 self.state = RobotState.CHECKING_INITIAL_POSE_STABILITY
-    self.get_logger().info("Finished coarse rotate 2. Reacquire stable pose, then fine docking.")
+                self.get_logger().info("Finished coarse rotate 2. Reacquire stable pose, then fine docking.")
 
             self.draw_debug(frame, corners_list, ids, rvec, tvec, text=f"STATE: {self.state.name}")
             return
