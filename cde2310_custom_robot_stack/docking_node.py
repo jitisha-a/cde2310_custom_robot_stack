@@ -86,10 +86,10 @@ class ArucoPose(Node):
         self.show_debug = True
 
         # # detection / stability tuning 
-        # self.required_detection_frames = 5      # N correct frames before we say ID is really found
-        # self.pose_window_size = 5               # use N last pose readings to check for stability
-        # self.pos_std_thresh = 0.01              # meters of position variation allowed
-        # self.angle_std_thresh_deg = 5.0         # degrees of angle variation allowed
+        self.required_detection_frames = 5      # N correct frames before we say ID is really found
+        self.pose_window_size = 5               # use N last pose readings to check for stability
+        self.pos_std_thresh = 0.01              # meters of position variation allowed
+        self.angle_std_thresh_deg = 5.0         # degrees of angle variation allowed
         
         # # final docking target
         # # want marker centered (tx ~ 0) and z ~ 0.40 m
@@ -126,8 +126,8 @@ class ArucoPose(Node):
         # self.max_angular_speed = 0.06
         # self.align_first_x_thresh_m = 0.05
 
-        # self.fine_lost_count = 0
-        # self.fine_lost_limit = 5
+        self.fine_lost_count = 0
+        self.fine_lost_limit = 5
 
 
         # # coarse state memory
