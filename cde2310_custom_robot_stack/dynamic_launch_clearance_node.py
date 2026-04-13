@@ -25,6 +25,12 @@ class DynamicLaunchClearanceNode(Node):
         # full in frame margin
         self.full_frame_margin_px = 5
 
+        # debounce settings
+        self.visible_streak = 0
+        self.not_visible_streak = 0
+        self.frames_required_visible = 4
+        self.frames_required_not_visible = 4
+
         self.dictionary = cv2.aruco.Dictionary_get(cv2.aruco.DICT_4X4_50)
         self.params = cv2.aruco.DetectorParameters_create()
 
@@ -47,9 +53,13 @@ class DynamicLaunchClearanceNode(Node):
             self.get_logger().info('Entering LAUNCH_DYNAMIC. Resetting clearance state.')
             self.marker_currently_visible = False
             self.clearance_count = 0
+            self.visible_streak = 0
+            self.not_visible_streak = 0
 
         if self.current_mode != 'LAUNCH_DYNAMIC':
             self.marker_currently_visible = False
+            self.visible_streak = 0
+            self.not_visible_streak = 0
 
     def decode_compressed(self, msg):
         arr = np.frombuffer(msg.data, dtype=np.uint8)
@@ -98,19 +108,37 @@ class DynamicLaunchClearanceNode(Node):
 
         fully_visible = self.marker_29_fully_visible(frame)
 
-        # Rising edge: not visible before, visible now
-        if fully_visible and not self.marker_currently_visible:
+        # debounce the raw visibility result
+        if fully_visible:
+            self.visible_streak += 1
+            self.not_visible_streak = 0
+        else:
+            self.not_visible_streak += 1
+            self.visible_streak = 0
+
+        # Rising edge only after 4 consecutive visible frames
+        if (
+            self.visible_streak >= self.frames_required_visible
+            and not self.marker_currently_visible
+        ):
             self.marker_currently_visible = True
             self.clearance_count += 1
             self.clearance_pub.publish(Bool(data=True))
             self.get_logger().info(
-                f'Marker 29 fully visible. Published clearance {self.clearance_count}/{self.max_clearances}.'
+                f'Marker 29 fully visible for {self.visible_streak} frames. '
+                f'Published clearance {self.clearance_count}/{self.max_clearances}.'
             )
 
-        # Falling edge: visible before, not visible now
-        elif not fully_visible and self.marker_currently_visible:
+        # Falling edge only after 4 consecutive not-visible frames
+        elif (
+            self.not_visible_streak >= self.frames_required_not_visible
+            and self.marker_currently_visible
+        ):
             self.marker_currently_visible = False
-            self.get_logger().info('Marker 29 left full view. Waiting for next reappearance.')
+            self.get_logger().info(
+                f'Marker 29 absent for {self.not_visible_streak} frames. '
+                'Waiting for next reappearance.'
+            )
 
 
 def main(args=None):
