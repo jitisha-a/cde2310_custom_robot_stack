@@ -107,7 +107,7 @@ class ArucoPose(Node):
         self.target_z_m = 0.25
         self.target_z_tol_m = 0.03
         
-        self.target_x_m = -0.01
+        self.target_x_m = 0.02
         self.target_x_tol_m = 0.005
         
         # decide coarse from heading only
