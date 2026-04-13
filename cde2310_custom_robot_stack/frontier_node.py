@@ -102,6 +102,7 @@ class FrontierExplorer(Node):
         self._navigating = False
         self._pending_goal = (0.0, 0.0)
         self._spinning = False
+        self._cooldown_until = 0.0  # epoch seconds, next goal not sent before this
 
         # Timer-driven exploration loop
         self.explore_timer = self.create_timer(1.0, self.explore_once)
@@ -370,7 +371,7 @@ class FrontierExplorer(Node):
                 self._do_spin_360()
                 return  # _navigating cleared after spin completes
         else:
-            if self.current_mode == 'EXPLORE':
+            if self.current_mode in ('EXPLORE', 'ROAM'):
                 self.get_logger().warn(
                     f"Goal failed (status {result.status}) — blacklisting."
                 )
@@ -383,6 +384,7 @@ class FrontierExplorer(Node):
                 )
 
         self._navigating = False
+        self._cooldown_until = self.get_clock().now().nanoseconds / 1e9 + 2.0  # 2s cooldown
 
     def _do_spin_360(self):
         """Trigger a 360° spin via Nav2 Spin action after reaching a roam goal."""
@@ -410,7 +412,8 @@ class FrontierExplorer(Node):
 
     def _spin_result_cb(self, future):
         self._spinning = False
-        self._navigating = False  # now ready for next roam goal
+        self._navigating = False
+        self._cooldown_until = self.get_clock().now().nanoseconds / 1e9 + 2.0
         self.get_logger().info("[ROAM] Spin complete. Ready for next roam goal.")
 
     # ----------------------------
@@ -423,6 +426,9 @@ class FrontierExplorer(Node):
         if self._navigating:
             return
         if self._spinning:
+            return
+        now = self.get_clock().now().nanoseconds / 1e9
+        if now < self._cooldown_until:
             return
         if not self.update_robot_pose():
             return
@@ -482,44 +488,54 @@ class FrontierExplorer(Node):
         self.send_goal(wx, wy)
     
     def get_roam_target(self):
-        if self.map_grid is None:
+        """Pick a reachable free cell far from robot using the same BFS as frontier detection."""
+        if self.map_grid is None or self.robot_x is None:
             return None
 
-        robot_cell = self.world_to_grid(self.robot_x, self.robot_y)
-        if robot_cell is None:
+        start = self.world_to_grid(self.robot_x, self.robot_y)
+        if start is None:
             return None
 
-        rr, rc = robot_cell
-        clearance = 2  # cells, matches inflation radius
+        rr, rc = start
+        clearance = 2
 
-        free_rows, free_cols = np.where(self.map_grid == 0)
-        candidates = []
-        for r, c in zip(free_rows.tolist(), free_cols.tolist()):
-            # must be far enough from robot
-            if abs(r - rr) + abs(c - rc) < 30:
-                continue
-            # must not be near obstacles
-            if any(self.is_occupied(r + dr, c + dc)
-                   for dr in range(-clearance, clearance + 1)
-                   for dc in range(-clearance, clearance + 1)):
-                continue
-            # must not be a previously failed goal
-            if (r, c) in self.failed_goals:
-                continue
-            candidates.append((r, c))
+        # BFS to find all reachable free cells (same as detect_frontiers)
+        reachable = set([start])
+        q = deque([start])
+        while q:
+            r, c = q.popleft()
+            for nr, nc in self.neighbors4(r, c):
+                if (nr, nc) not in reachable and self.is_free(nr, nc):
+                    reachable.add((nr, nc))
+                    q.append((nr, nc))
+
+        # filter: far enough, clear of obstacles, not previously failed
+        candidates = [
+            (r, c) for r, c in reachable
+            if abs(r - rr) + abs(c - rc) >= 30
+            and (r, c) not in self.failed_goals
+            and not any(
+                self.is_occupied(r + dr, c + dc)
+                for dr in range(-clearance, clearance + 1)
+                for dc in range(-clearance, clearance + 1)
+            )
+        ]
 
         if not candidates:
-            # fallback: any free cell at least 10 cells away
+            # fallback: any reachable free cell at least 10 cells away
             candidates = [
-                (r, c) for r, c in zip(free_rows.tolist(), free_cols.tolist())
+                (r, c) for r, c in reachable
                 if abs(r - rr) + abs(c - rc) >= 10
-                and self.is_free(r, c)
+                and (r, c) not in self.failed_goals
             ]
 
         if not candidates:
             return None
 
-        return candidates[np.random.randint(len(candidates))]
+        # pick from the farthest 20% to maximise coverage
+        candidates.sort(key=lambda cell: abs(cell[0] - rr) + abs(cell[1] - rc), reverse=True)
+        top_n = max(1, len(candidates) // 5)
+        return candidates[np.random.randint(top_n)]
 
 # ----------------------------
 # Main entry
