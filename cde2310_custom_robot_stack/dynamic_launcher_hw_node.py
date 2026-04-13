@@ -21,10 +21,6 @@ class DynamicLauncherHwNode(Node):
         self.ball_count = 0
         self.max_balls = 3
 
-        # cooldown
-        self.last_launch_time = 0.0
-        self.launch_cooldown_sec = 5.0
-
         # GPIO pins
         self.SERVO_PIN = 12
         self.ENA = 18
@@ -95,14 +91,6 @@ class DynamicLauncherHwNode(Node):
         if self.ball_count >= self.max_balls:
             return
 
-        # cooldown guard
-        now = time.time()
-        if now - self.last_launch_time < self.launch_cooldown_sec:
-            self.get_logger().warn(
-                f'Ignoring clearance: only {now - self.last_launch_time:.2f}s since last launch '
-                f'(cooldown {self.launch_cooldown_sec:.1f}s).'
-            )
-            return
 
         self.awaiting_launch = False
         self.ball_count += 1
@@ -115,7 +103,6 @@ class DynamicLauncherHwNode(Node):
             self.finish_sequence(aborted=True)
             return
 
-        self.last_launch_time = time.time()
 
         if self.ball_count >= self.max_balls:
             self.finish_sequence(aborted=False)
@@ -170,7 +157,6 @@ class DynamicLauncherHwNode(Node):
         self.is_launching = True
         self.awaiting_launch = True
         self.ball_count = 0
-        self.last_launch_time = 0.0
 
         self.motor_reverse()
         self.set_motor_speed(self.MOTOR_DUTY)
