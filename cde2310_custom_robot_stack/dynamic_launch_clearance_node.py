@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import time
 import cv2
 import numpy as np
 
@@ -31,6 +32,10 @@ class DynamicLaunchClearanceNode(Node):
         self.frames_required_visible = 4
         self.frames_required_not_visible = 4
 
+        # cooldown after publishing a clearance
+        self.clearance_cooldown_sec = 5.0
+        self.cooldown_until = 0.0
+
         self.dictionary = cv2.aruco.Dictionary_get(cv2.aruco.DICT_4X4_50)
         self.params = cv2.aruco.DetectorParameters_create()
 
@@ -55,11 +60,13 @@ class DynamicLaunchClearanceNode(Node):
             self.clearance_count = 0
             self.visible_streak = 0
             self.not_visible_streak = 0
+            self.cooldown_until = 0.0
 
         if self.current_mode != 'LAUNCH_DYNAMIC':
             self.marker_currently_visible = False
             self.visible_streak = 0
             self.not_visible_streak = 0
+            self.cooldown_until = 0.0
 
     def decode_compressed(self, msg):
         arr = np.frombuffer(msg.data, dtype=np.uint8)
@@ -102,13 +109,19 @@ class DynamicLaunchClearanceNode(Node):
         if self.clearance_count >= self.max_clearances:
             return
 
+        now = time.time()
+
+        # During cooldown, ignore checking/publishing completely
+        if now < self.cooldown_until:
+            return
+
         frame = self.decode_compressed(msg)
         if frame is None:
             return
 
         fully_visible = self.marker_29_fully_visible(frame)
 
-        # debounce the raw visibility result
+        # debounce raw visibility
         if fully_visible:
             self.visible_streak += 1
             self.not_visible_streak = 0
@@ -124,9 +137,12 @@ class DynamicLaunchClearanceNode(Node):
             self.marker_currently_visible = True
             self.clearance_count += 1
             self.clearance_pub.publish(Bool(data=True))
+            self.cooldown_until = time.time() + self.clearance_cooldown_sec
+
             self.get_logger().info(
-                f'Marker 29 fully visible for {self.visible_streak} frames. '
-                f'Published clearance {self.clearance_count}/{self.max_clearances}.'
+                f'Marker 29 visible for {self.visible_streak} frames. '
+                f'Published clearance {self.clearance_count}/{self.max_clearances}. '
+                f'Cooling down for {self.clearance_cooldown_sec:.1f}s.'
             )
 
         # Falling edge only after 4 consecutive not-visible frames
