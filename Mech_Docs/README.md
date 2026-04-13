@@ -45,5 +45,9 @@
 ## Launch Calculations
 
 ## Design Reasoning
+1. A flexible hose was chosen for holding the ping pong balls as its flexibility allows for more room for error and relies on placement of the flexible mounts rather than a rigid container.
+2. A single motor was chosen to reduce complexity and cost of the project. 2 motors might result in inconsistent trajectory should motor control not be precise.
+3. A separate mount for the motor was chosen for added flexibility in turing the contact of the ping pong ball with the flywheel.
+4. A servo arm with an extension was chosen to actuate firing the ping pong ball as it provides the range of motion required without the complexity of cams or gears.
 
 ## Additional Details
