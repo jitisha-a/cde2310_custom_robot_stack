@@ -136,6 +136,11 @@ class ArucoPose(Node):
         self.max_heading_align_speed = 0.10
         self.final_heading_tol_deg = 5.0
 
+
+        self.final_heading_correction_active = False
+        self.final_heading_target_yaw = 0.0
+        self.final_heading_max_step_deg = 8.0
+
         # odometry state
         # yaw will come from /odom
         self.odom_ready = False
@@ -253,6 +258,8 @@ class ArucoPose(Node):
             self.coarse_shift_distance_m = 0.0
             self.coarse_done_in_sequence = False
             self.coarse_heading_err_rad = 0.0
+            self.final_heading_correction_active = False
+            self.final_heading_target_yaw = 0.0
 
     
     def target_marker_callback(self, msg):
@@ -926,24 +933,48 @@ class ArucoPose(Node):
                 self.stop_motion()
                 self.detect_count = 0
                 self.reset_pose_history()
+                self.final_heading_correction_active = False
                 self.state = RobotState.SEARCHING_FOR_ID
                 self.draw_debug(frame, corners_list, ids, text=f"STATE: {self.state.name}")
                 return
         
-            angular_z, heading_err = self.compute_final_heading_command(rvec)
+            heading_err = self.compute_heading_error(rvec)
+            heading_err_deg = math.degrees(heading_err)
         
             self.get_logger().info(
-                f"FINAL_HEADING_ALIGN | "
-                f"heading_err={math.degrees(heading_err):+.2f} deg | "
-                f"cmd.angular.z={angular_z:+.3f}"
+                f"FINAL_HEADING_ALIGN | heading_err={heading_err_deg:+.2f} deg"
             )
         
-            if self.heading_aligned(rvec):
+            # done if already good enough
+            if abs(heading_err_deg) <= self.final_heading_tol_deg:
                 self.get_logger().info("Final heading aligned. Docking complete.")
                 self.stop_motion()
+                self.final_heading_correction_active = False
                 self.state = RobotState.DONE
-            else:
-                self.publish_cmd(0.0, angular_z)
+                self.draw_debug(frame, corners_list, ids, rvec, tvec, text=f"STATE: {self.state.name}")
+                return
+        
+            # start one bounded correction only once
+            if not self.final_heading_correction_active:
+                correction_deg = max(
+                    -self.final_heading_max_step_deg,
+                    min(self.final_heading_max_step_deg, heading_err_deg)
+                )
+        
+                self.get_logger().info(
+                    f"Starting bounded final heading correction of {correction_deg:+.2f} deg"
+                )
+        
+                ok = self.start_odom_turn(correction_deg)
+                if not ok:
+                    self.draw_debug(frame, corners_list, ids, rvec, tvec, text=f"STATE: {self.state.name}")
+                    return
+        
+                self.final_heading_correction_active = True
+        
+            # wait for turn to finish, then re-measure next frame
+            if self.update_odom_turn():
+                self.final_heading_correction_active = False
         
             self.draw_debug(
                 frame,
@@ -951,9 +982,10 @@ class ArucoPose(Node):
                 ids,
                 rvec,
                 tvec,
-                text=f"STATE: {self.state.name} | head={math.degrees(heading_err):+.1f}"
+                text=f"STATE: {self.state.name} | head={heading_err_deg:+.1f}"
             )
             return
+    
             # ######## STATE: DONE #########
         if self.state == RobotState.DONE:
             self.stop_motion()
