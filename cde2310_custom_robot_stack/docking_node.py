@@ -490,7 +490,7 @@ class ArucoPose(Node):
         #Check if marker depth is at target docking distance.
         #tz is marker center forward distance in camera frame.
         tz = float(tvec[2, 0]) # cause tvec column vector stored as matrix so row 2 column 0 
-        return abs(tz - self.target_z_m) <= self.target_z_tol_m or tz <= self.target_z_m
+        return abs(tz - self.target_z_m) <= self.target_z_tol_m
     
     def x_centered(self, tvec):
         #Check if marker is centered horizontally in camera frame.
@@ -809,7 +809,8 @@ class ArucoPose(Node):
         # Move forward to approximate lateral shift
         # still open-loop and time-based
         # --------------------------------------------------------
-       if self.state == RobotState.COARSE_ALIGN_SHIFT:
+       
+        if self.state == RobotState.COARSE_ALIGN_SHIFT:
             elapsed = self.elapsed_in_state_s()
             shift_time = self.coarse_shift_time_s()
         
