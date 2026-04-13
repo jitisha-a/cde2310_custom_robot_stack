@@ -104,19 +104,19 @@ class ArucoPose(Node):
         self.state_start_time_ns = None
 
         # final docking target
-        self.target_z_m = 0.312
+        self.target_z_m = 0.25
         self.target_z_tol_m = 0.03
         
-        self.target_x_m = 0.05
-        self.target_x_tol_m = 0.01
+        self.target_x_m = -0.01
+        self.target_x_tol_m = 0.005
         
         # decide coarse from heading only
         self.coarse_heading_thresh_deg = 10.0
         
         # coarse alignment settings
         self.coarse_shift_max_m = 0.25
-        self.coarse_forward_speed = 0.04
-        self.coarse_rotate_speed = 0.3
+        self.coarse_forward_speed = 0.05
+        self.coarse_rotate_speed = 0.4
         
         # allow coarse only once in a docking sequence
         self.coarse_done_in_sequence = False
@@ -908,7 +908,7 @@ class ArucoPose(Node):
             if self.docking_position_reached(tvec):
                 self.get_logger().info("Docking position reached. Switching to final heading alignment.")
                 self.stop_motion()
-                self.state = RobotState.FINAL_HEADING_ALIGN
+                self.state = RobotState.DONE
             else:
                 self.publish_cmd(linear_x, angular_z)
         
