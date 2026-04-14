@@ -27,8 +27,8 @@ class StationaryLauncherHwNode(Node):
         self.MOTOR_PWM_FREQ = 1000
         self.SERVO_PWM_FREQ = 50
 
-        self.SERVO_HOLD_ANGLE = 120
-        self.SERVO_LAUNCH_ANGLE = 170
+        self.SERVO_HOLD_ANGLE = 130
+        self.SERVO_LAUNCH_ANGLE = 180
 
         self.RAMP_STEP = 10
         self.RAMP_STEP_DELAY = 0.2
