@@ -27,6 +27,15 @@
 - Install the servo arm extension to the servo arm.
 - Install the servo to the barrel, being careful to position the arm so that it does not hit the wall of the barrel.
 
+<div className="flex gap-6 justify-center items-center">
+<div>
+![=x400](/Barrel_Iso.png)
+<div className="w-full flex items-center justify-center">
+<p className="italic">Barrel Isometric View</p>
+</div>
+</div>
+</div>
+
 3. Assemble the firing assembly to the Turtlebot
 - Install the barrel assembly to Turtlebot, lining up the mounting tabs between layers 2 and 3.
 
@@ -50,6 +59,24 @@
 1. A flexible hose was chosen for holding the ping pong balls as its flexibility allows for more room for error and relies on placement of the flexible mounts rather than a rigid container.
 2. A single motor was chosen to reduce complexity and cost of the project. 2 motors might result in inconsistent trajectory should motor control not be precise.
 3. A separate mount for the motor was chosen for added flexibility in turing the contact of the ping pong ball with the flywheel.
-4. A servo arm with an extension was chosen to actuate firing the ping pong ball as it provides the range of motion required without the complexity of cams or gears.
+4. A servo arm with an extension was chosen to actuate firing the ping pong ball as it provides the range of motion required without the complexity of cams or gears. When the arm is in the firing position, it prevents the next ping pong ball from rolling into the barrel.
+
+<div className="flex gap-6 justify-center items-center">
+<div>
+![=x400](/Barrel_Section_Load.png)
+<div className="w-full flex items-center justify-center">
+<p className="italic">Arm in Loaded position</p>
+</div>
+</div>
+</div>
+
+<div className="flex gap-6 justify-center items-center">
+<div>
+![=x400](/Barrel_Section_Fire.png)
+<div className="w-full flex items-center justify-center">
+<p className="italic">Arm in Firing position</p>
+</div>
+</div>
+</div>
 
 ## Additional Details
