@@ -82,6 +82,11 @@ class SupervisorNode(Node):
                 self.current_mode = 'ROAM'
             else:
                 self.get_logger().info('Frontiers exhausted and all missions complete.')
+        elif not msg.data and self.current_mode == 'ROAM':
+            # Frontier node found new frontiers while roaming
+            self.frontiers_exhausted = False
+            self.get_logger().info('New frontiers available — switching ROAM -> EXPLORE.')
+            self.current_mode = 'EXPLORE'
 
     def coarse_goal_ready_callback(self, msg: Bool):
         if not msg.data or self.current_mode not in ('EXPLORE', 'ROAM'):
@@ -158,6 +163,7 @@ class SupervisorNode(Node):
     
             self.get_logger().info('Launch complete. Returning to EXPLORE.')
             self.current_mode = 'EXPLORE'
+            self.frontiers_exhausted = False  # reset — new areas may be reachable after delivery
             self.target_station_type = ''
             self.stationary_launch_sent = False
             self.dynamic_launch_sent = False

@@ -94,8 +94,15 @@ class FrontierExplorer(Node):
         self.scan = np.array([])
 
         # Frontier params
-        self.frontier_min_size = 1
+        self.frontier_min_size = 3  # filter noise — require at least 3 cells to be a real frontier
         self.failed_goals: Set[GridCell] = set()
+
+        # How many consecutive empty checks before giving up and switching to ROAM
+        self.empty_frontier_retries = 3
+        self._empty_frontier_count = 0
+        # How long to wait between empty-frontier retries (seconds)
+        # Gives the map time to update after arriving at a new position
+        self.frontier_wait_s = 3.0
 
         # Goal state
         self._goal_handle = None
@@ -235,7 +242,10 @@ class FrontierExplorer(Node):
         return clusters
 
     def choose_frontier_target(self, clusters: List[List[GridCell]]) -> Optional[GridCell]:
-        """Choose the frontier cluster closest to the robot, avoiding obstacles."""
+        """
+        Score frontiers by information gain / distance ratio.
+        Falls back to relaxed obstacle check if strict check yields no candidates.
+        """
         if not clusters:
             return None
         robot_cell = self.world_to_grid(self.robot_x, self.robot_y)
@@ -243,28 +253,44 @@ class FrontierExplorer(Node):
             return None
         rr, rc = robot_cell
 
-        def best_from_clusters(cluster_list, clearance):
+        def score_clusters(clearance):
             best_target = None
-            best_dist = float('inf')
-            for cluster in cluster_list:
+            best_score = -1.0
+            for cluster in clusters:
                 r_mean = int(sum(r for r, _ in cluster) / len(cluster))
                 c_mean = int(sum(c for _, c in cluster) / len(cluster))
+
                 if not self.is_free(r_mean, c_mean):
-                    continue
-                too_close = any(
+                    # try nearest free cell in cluster instead of centroid
+                    free_cells = [(r, c) for r, c in cluster if self.is_free(r, c)]
+                    if not free_cells:
+                        continue
+                    r_mean, c_mean = min(
+                        free_cells,
+                        key=lambda cell: abs(cell[0] - rr) + abs(cell[1] - rc)
+                    )
+
+                if clearance > 0 and any(
                     self.is_occupied(r_mean + dr, c_mean + dc)
                     for dr in range(-clearance, clearance + 1)
                     for dc in range(-clearance, clearance + 1)
-                )
-                if too_close:
+                ):
                     continue
-                dist = abs(r_mean - rr) + abs(c_mean - rc)
-                if dist < best_dist:
-                    best_dist = dist
+
+                dist = max(1, abs(r_mean - rr) + abs(c_mean - rc))
+                gain = len(cluster)
+                score = gain / (dist ** 0.7)
+
+                if score > best_score:
+                    best_score = score
                     best_target = (r_mean, c_mean)
             return best_target
 
-        return best_from_clusters(clusters, clearance=1)
+        # Try strict clearance first, then relax if nothing found
+        result = score_clusters(clearance=1)
+        if result is None:
+            result = score_clusters(clearance=0)
+        return result
 
     # ----------------------------
     # Robot pose update
@@ -338,8 +364,8 @@ class FrontierExplorer(Node):
             self._navigating = False
             return
         self.get_logger().info("Goal accepted, navigating...")
-        # watchdog: if robot hasn't moved within 35s, cancel and blacklist
-        self._watchdog_timer = self.create_timer(35.0, self._watchdog_cb)
+        # watchdog: if robot hasn't moved within 60s, cancel and blacklist
+        self._watchdog_timer = self.create_timer(60.0, self._watchdog_cb)
         self._goal_handle.get_result_async().add_done_callback(self._goal_result_cb)
 
     def _watchdog_cb(self):
@@ -435,8 +461,25 @@ class FrontierExplorer(Node):
 
         mode = self.current_mode  
 
-        # 2. ROAM MODE
+        # 2. ROAM MODE — navigate to a random free cell, but check for new frontiers first
         if mode == 'ROAM':
+            # Check if new frontiers have appeared AND are actually navigable
+            clusters = self.detect_frontiers()
+            clusters = [
+                c for c in clusters
+                if not any(cell in self.failed_goals for cell in c)
+            ]
+            if clusters:
+                # Only switch back if we can actually find a valid target
+                target_cell = self.choose_frontier_target(clusters)
+                if target_cell is not None:
+                    self.get_logger().info('New frontiers found while roaming — switching back to EXPLORE.')
+                    self.exploration_done = False
+                    self.current_mode = 'EXPLORE'
+                    self._empty_frontier_count = 0
+                    self.exhausted_pub.publish(Bool(data=False))
+                    return
+
             target = self.get_roam_target()
             if target is None:
                 return
@@ -460,24 +503,29 @@ class FrontierExplorer(Node):
         ]
 
         if not clusters:
-            self.get_logger().info("Frontiers exhausted → switching to ROAM")
+            self._empty_frontier_count += 1
+            self.get_logger().warn(
+                f"No frontiers detected ({self._empty_frontier_count}/{self.empty_frontier_retries}) "
+                f"— waiting {self.frontier_wait_s}s for map to update..."
+            )
+            # Set cooldown so we wait before checking again — gives map time to update
+            self._cooldown_until = self.get_clock().now().nanoseconds / 1e9 + self.frontier_wait_s
 
-            self.exploration_done = True
-            self.current_mode = 'ROAM'
-            self.exhausted_pub.publish(Bool(data=True))
-
-            self._goal_handle = None
+            if self._empty_frontier_count >= self.empty_frontier_retries:
+                self.get_logger().info("Frontiers exhausted → switching to ROAM")
+                self.exploration_done = True
+                self.current_mode = 'ROAM'
+                self.exhausted_pub.publish(Bool(data=True))
+                self._goal_handle = None
+                self._empty_frontier_count = 0
             return
 
         target_cell = self.choose_frontier_target(clusters)
+        self._empty_frontier_count = 0  # reset — we found frontiers
 
         if target_cell is None:
-            self.get_logger().info("No valid frontier target → treating as exhausted")
-
-            self.exploration_done = True
-            self.current_mode = 'ROAM'
-            self.exhausted_pub.publish(Bool(data=True))
-
+            self.get_logger().warn('Frontiers exist but no valid target found — retrying next cycle.')
+            self._cooldown_until = self.get_clock().now().nanoseconds / 1e9 + self.frontier_wait_s
             return
 
         wx, wy = self.grid_to_world(*target_cell)
