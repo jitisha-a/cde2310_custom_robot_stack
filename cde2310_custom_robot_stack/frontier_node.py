@@ -94,8 +94,13 @@ class FrontierExplorer(Node):
         self.scan = np.array([])
 
         # Frontier params
-        self.frontier_min_size = 3  # filter noise — require at least 3 cells to be a real frontier
+        self.frontier_min_size = 8  # was 3 — filters LiDAR speckle and map artifacts
         self.failed_goals: Set[GridCell] = set()
+
+        # Roam: exclusion zone around previously visited roam goals (in grid cells)
+        # 0.5m radius / 0.05m resolution = 10 cells
+        self.roam_visited: Set[GridCell] = set()
+        self.roam_exclusion_radius = 10  # cells (~0.5m)
 
         # How many consecutive empty checks before giving up and switching to ROAM
         self.empty_frontier_retries = 3
@@ -194,10 +199,10 @@ class FrontierExplorer(Node):
     # Frontier detection
     # ----------------------------
     def cell_is_frontier(self, row: int, col: int) -> bool:
-        """A frontier cell is free and touches unknown space (8-connectivity)."""
+        """A frontier cell is free and touches at least 2 unknown cells (reduces noise)."""
         if not self.is_free(row, col):
             return False
-        return any(self.is_unknown(nr, nc) for nr, nc in self.neighbors8(row, col))
+        return sum(1 for nr, nc in self.neighbors8(row, col) if self.is_unknown(nr, nc)) >= 2
 
     def detect_frontiers(self) -> List[List[GridCell]]:
         """Detect all reachable frontier clusters from robot pose."""
@@ -253,7 +258,7 @@ class FrontierExplorer(Node):
             return None
         rr, rc = robot_cell
 
-        def score_clusters(clearance):
+        def score_clusters(clearance, wall_clearance=3):
             best_target = None
             best_score = -1.0
             for cluster in clusters:
@@ -261,7 +266,6 @@ class FrontierExplorer(Node):
                 c_mean = int(sum(c for _, c in cluster) / len(cluster))
 
                 if not self.is_free(r_mean, c_mean):
-                    # try nearest free cell in cluster instead of centroid
                     free_cells = [(r, c) for r, c in cluster if self.is_free(r, c)]
                     if not free_cells:
                         continue
@@ -269,6 +273,14 @@ class FrontierExplorer(Node):
                         free_cells,
                         key=lambda cell: abs(cell[0] - rr) + abs(cell[1] - rc)
                     )
+
+                # skip if too close to any occupied cell
+                if any(
+                    self.is_occupied(r_mean + dr, c_mean + dc)
+                    for dr in range(-wall_clearance, wall_clearance + 1)
+                    for dc in range(-wall_clearance, wall_clearance + 1)
+                ):
+                    continue
 
                 if clearance > 0 and any(
                     self.is_occupied(r_mean + dr, c_mean + dc)
@@ -286,10 +298,12 @@ class FrontierExplorer(Node):
                     best_target = (r_mean, c_mean)
             return best_target
 
-        # Try strict clearance first, then relax if nothing found
-        result = score_clusters(clearance=1)
+        # Try strict wall clearance first, then relax if nothing found
+        result = score_clusters(clearance=1, wall_clearance=3)
         if result is None:
-            result = score_clusters(clearance=0)
+            result = score_clusters(clearance=0, wall_clearance=2)
+        if result is None:
+            result = score_clusters(clearance=0, wall_clearance=0)
         return result
 
     # ----------------------------
@@ -351,6 +365,7 @@ class FrontierExplorer(Node):
         goal_msg.pose.pose.orientation.w = math.cos(yaw / 2.0)
 
         self._pending_goal = (x, y)
+        self._pending_goal_mode = self.current_mode
         send_future = self.nav2_client.send_goal_async(goal_msg)
         send_future.add_done_callback(self._goal_response_cb)
 
@@ -364,8 +379,10 @@ class FrontierExplorer(Node):
             self._navigating = False
             return
         self.get_logger().info("Goal accepted, navigating...")
-        # watchdog: if robot hasn't moved within 60s, cancel and blacklist
-        self._watchdog_timer = self.create_timer(60.0, self._watchdog_cb)
+        # watchdog: roam goals get 1.5x the explore timeout
+        watchdog_s = 45.0 if self._pending_goal_mode != 'ROAM' else 45.0 * 1.5
+        self.get_logger().info(f"Watchdog set to {watchdog_s:.1f}s (mode: {self._pending_goal_mode})")
+        self._watchdog_timer = self.create_timer(watchdog_s, self._watchdog_cb)
         self._goal_handle.get_result_async().add_done_callback(self._goal_result_cb)
 
     def _watchdog_cb(self):
@@ -394,10 +411,26 @@ class FrontierExplorer(Node):
         if result.status == GoalStatus.STATUS_SUCCEEDED:
             self.get_logger().info("Goal reached successfully.")
             if self.current_mode == 'ROAM':
+                # mark this area as visited so we don't return to it
+                cell = self.world_to_grid(*self._pending_goal)
+                if cell:
+                    self.roam_visited.add(cell)
                 self._do_spin_360()
                 return  # _navigating cleared after spin completes
         else:
-            if self.current_mode in ('EXPLORE', 'ROAM'):
+            if self.current_mode == 'ROAM':
+                # in ROAM, if we got close enough just spin anyway
+                cell = self.world_to_grid(*self._pending_goal)
+                wx, wy = self._pending_goal
+                dist = math.hypot(wx - self.robot_x, wy - self.robot_y) if self.robot_x is not None else 999
+                if dist < 0.5:
+                    self.get_logger().info(f"[ROAM] Close enough ({dist:.2f}m) — spinning anyway.")
+                    self._do_spin_360()
+                    return
+                self.get_logger().warn(f"[ROAM] Goal failed (status {result.status}) — blacklisting.")
+                if cell:
+                    self.failed_goals.add(cell)
+            elif self.current_mode == 'EXPLORE':
                 self.get_logger().warn(
                     f"Goal failed (status {result.status}) — blacklisting."
                 )
@@ -414,7 +447,7 @@ class FrontierExplorer(Node):
 
     def _do_spin_360(self):
         """Trigger a 360° spin via Nav2 Spin action after reaching a roam goal."""
-        if not self.spin_client.wait_for_server(timeout_sec=1.0):
+        if not self.spin_client.wait_for_server(timeout_sec=3.0):
             self.get_logger().warn("Spin action server not available — skipping spin.")
             self._navigating = False
             return
@@ -475,6 +508,7 @@ class FrontierExplorer(Node):
                 if target_cell is not None:
                     self.get_logger().info('New frontiers found while roaming — switching back to EXPLORE.')
                     self.exploration_done = False
+                    self.roam_visited.clear()
                     self.current_mode = 'EXPLORE'
                     self._empty_frontier_count = 0
                     self.exhausted_pub.publish(Bool(data=False))
@@ -557,7 +591,7 @@ class FrontierExplorer(Node):
                     reachable.add((nr, nc))
                     q.append((nr, nc))
 
-        # filter: far enough, clear of obstacles, not previously failed
+        # filter: far enough, clear of obstacles, not previously failed, not near a visited roam goal
         candidates = [
             (r, c) for r, c in reachable
             if abs(r - rr) + abs(c - rc) >= 30
@@ -567,14 +601,22 @@ class FrontierExplorer(Node):
                 for dr in range(-clearance, clearance + 1)
                 for dc in range(-clearance, clearance + 1)
             )
+            and not any(
+                abs(r - vr) + abs(c - vc) < self.roam_exclusion_radius
+                for vr, vc in self.roam_visited
+            )
         ]
 
         if not candidates:
-            # fallback: any reachable free cell at least 10 cells away
+            # fallback: any reachable free cell at least 10 cells away, still avoiding visited
             candidates = [
                 (r, c) for r, c in reachable
                 if abs(r - rr) + abs(c - rc) >= 10
                 and (r, c) not in self.failed_goals
+                and not any(
+                    abs(r - vr) + abs(c - vc) < self.roam_exclusion_radius
+                    for vr, vc in self.roam_visited
+                )
             ]
 
         if not candidates:
