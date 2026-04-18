@@ -2,8 +2,6 @@
 
 ## Turtlebot Components
 
-### Sub-components
-
 ### Bill of Materials
 <img width="798" height="463" alt="image" src="https://github.com/user-attachments/assets/8c138b27-ef64-4fa1-a80b-8ac5e15a5e89" />
 
@@ -16,6 +14,8 @@
 </div>
 </div>
 </div>
+
+![Barrel](Barrel_solo.png)
 
 <div className="flex gap-6 justify-center items-center">
 <div>
