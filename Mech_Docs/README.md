@@ -6,51 +6,29 @@
 <img width="798" height="463" alt="image" src="https://github.com/user-attachments/assets/8c138b27-ef64-4fa1-a80b-8ac5e15a5e89" />
 
 ### Printed Parts
-<div className="flex gap-6 justify-center items-center">
-<div>
-![=x400](/Barrel_solo.png)
+<img src="../Images/Barrel_solo.png" width="400" alt="Barrel">
 <div className="w-full flex items-center justify-center">
 <p className="italic">Barrel</p>
 </div>
-</div>
-</div>
 
-<img src="../Images/Barrel_solo.png" width="400" alt="Barrel">
-
-<div className="flex gap-6 justify-center items-center">
-<div>
-![=x400](/flywheel.png)
+<img src="../Images/flywheel.png" width="400" alt="Barrel">
 <div className="w-full flex items-center justify-center">
 <p className="italic">Flywheel</p>
 </div>
-</div>
-</div>
 
-<div className="flex gap-6 justify-center items-center">
-<div>
-![=x400](/motor_mount.png)
+<img src="../Images/motor_mount.png" width="400" alt="Barrel">
 <div className="w-full flex items-center justify-center">
 <p className="italic">Motor Mount</p>
 </div>
-</div>
-</div>
 
-<div className="flex gap-6 justify-center items-center">
-<div>
-![=x400](/Tube_support.png)
+<img src="../Images/Tube_support.png" width="400" alt="Barrel">
 <div className="w-full flex items-center justify-center">
 <p className="italic">Tube Support</p>
 </div>
-</div>
-</div>
 
-<div className="flex gap-6 justify-center items-center">
-<div>
-![=x400](/Camera_Mount.png)
+<img src="../Images/Camera_Mount.png" width="400" alt="Barrel">
 <div className="w-full flex items-center justify-center">
 <p className="italic">Camera Mount</p>
-</div>
-</div>
 </div>
 
 
@@ -70,24 +48,20 @@
 - Install the servo arm extension to the servo arm.
 - Install the servo to the barrel, being careful to position the arm so that it does not hit the wall of the barrel.
 
-<div className="flex gap-6 justify-center items-center">
-<div>
-![=x400](/Barrel_Iso.png)
+<img src="../Images/Barrel_Iso.png" width="400" alt="Barrel">
 <div className="w-full flex items-center justify-center">
-<p className="italic">Barrel Isometric View</p>
-</div>
-</div>
+<p className="italic">Barrel Assembly</p>
 </div>
 
 3. Assemble the firing assembly to the Turtlebot
 - Install the barrel assembly to Turtlebot, lining up the mounting tabs between layers 2 and 3.
 
-4. Assembly of bandoleer
+4. Assembly of tube
 - Install the vacuum hose on the intake of the barrel and tighten the hose clamp.
 - Wrap the hose around the turtlebot and note where the top of the hose is positioned.
-- Install the first bandoleer support at the top of the hose and secure the bandoleer to the support with a cable tie.
-- Install 2 additional bandoleer supports to ensure the vacuum tube is properly secured and does not flop.
-- Ensure functionality of the bandoleer by ensuring that the ping pong balls roll down the bandoleer and into the barrel.
+- Install the first tube support at the top of the hose and secure the tube to the support with a cable tie.
+- Install 2 additional tube supports to ensure the vacuum tube is properly secured and does not flop.
+- Ensure functionality of the tube by ensuring that the ping pong balls roll down the tube and into the barrel.
 
 ### Important Installation Notes
 1. When installing the motor to the barrel, use a ping pong ball as a guide. The ping pong ball should not be able to roll down the barrel when the motor-flywheel assembly is mounted. Add spacers between the motor mount and barrel as necessary to get the desired compression with the ping pong balls. From our testing, using an M4 nut as a spacer gave us the appropriate compression for our desired firing behaviour. 
@@ -99,27 +73,18 @@
 ## Launch Calculations
 
 ## Design Reasoning
-1. A flexible hose was chosen for holding the ping pong balls as its flexibility allows for more room for error and relies on placement of the flexible mounts rather than a rigid container.
+1. A flexible hose was chosen for holding the ping pong balls as its flexibility allows for more room for error and relies on placement of the flexible mounts rather than a rigid container. This allows us to achieve a relatively small footprint compared to other teams.
 2. A single motor was chosen to reduce complexity and cost of the project. 2 motors might result in inconsistent trajectory should motor control not be precise.
 3. A separate mount for the motor was chosen for added flexibility in turing the contact of the ping pong ball with the flywheel.
 4. A servo arm with an extension was chosen to actuate firing the ping pong ball as it provides the range of motion required without the complexity of cams or gears. When the arm is in the firing position, it prevents the next ping pong ball from rolling into the barrel.
 
-<div className="flex gap-6 justify-center items-center">
-<div>
-![=x400](/Barrel_Section_Load.png)
+<img src="../Images/Barrel_Section_Load.png" width="400" alt="Barrel">
 <div className="w-full flex items-center justify-center">
-<p className="italic">Arm in Loaded position</p>
-</div>
-</div>
+<p className="italic">Arm in loaded position</p>
 </div>
 
-<div className="flex gap-6 justify-center items-center">
-<div>
-![=x400](/Barrel_Section_Fire.png)
+<img src="../Images/Barrel_Section_Fire.png" width="400" alt="Barrel">
 <div className="w-full flex items-center justify-center">
-<p className="italic">Arm in Firing position</p>
-</div>
-</div>
+<p className="italic">Arm in firing position</p>
 </div>
 
-## Additional Details
