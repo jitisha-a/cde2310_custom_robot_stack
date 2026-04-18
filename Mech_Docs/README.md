@@ -88,3 +88,4 @@
 <p className="italic">Arm in firing position</p>
 </div>
 
+5. The mounting holes for the motor mount and barrel are slots, rather than holes. This allows for some flexibility in mounting and positioning to ensure full functionality of the bot.
