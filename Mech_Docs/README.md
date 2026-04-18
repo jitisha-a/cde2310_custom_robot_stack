@@ -15,7 +15,7 @@
 </div>
 </div>
 
-![Barrel](Barrel_solo.png)
+<img src="../Images/Barrel_solo.png" width="400" alt="Barrel">
 
 <div className="flex gap-6 justify-center items-center">
 <div>
