@@ -8,8 +8,51 @@
 <img width="798" height="463" alt="image" src="https://github.com/user-attachments/assets/8c138b27-ef64-4fa1-a80b-8ac5e15a5e89" />
 
 ### Printed Parts
+<div className="flex gap-6 justify-center items-center">
+<div>
+![=x400](/Barrel_solo.png)
+<div className="w-full flex items-center justify-center">
+<p className="italic">Barrel</p>
+</div>
+</div>
+</div>
 
-### Hardware
+<div className="flex gap-6 justify-center items-center">
+<div>
+![=x400](/flywheel.png)
+<div className="w-full flex items-center justify-center">
+<p className="italic">Flywheel</p>
+</div>
+</div>
+</div>
+
+<div className="flex gap-6 justify-center items-center">
+<div>
+![=x400](/motor_mount.png)
+<div className="w-full flex items-center justify-center">
+<p className="italic">Motor Mount</p>
+</div>
+</div>
+</div>
+
+<div className="flex gap-6 justify-center items-center">
+<div>
+![=x400](/Tube_support.png)
+<div className="w-full flex items-center justify-center">
+<p className="italic">Tube Support</p>
+</div>
+</div>
+</div>
+
+<div className="flex gap-6 justify-center items-center">
+<div>
+![=x400](/Camera_Mount.png)
+<div className="w-full flex items-center justify-center">
+<p className="italic">Camera Mount</p>
+</div>
+</div>
+</div>
+
 
 ## Assembly Instruction
 1. Before the firing assembly can be mounted on the turtlebot, the base Burger Turtlebot needs to be modified. 
