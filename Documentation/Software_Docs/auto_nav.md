@@ -106,13 +106,15 @@ Two costmaps are maintained simultaneously:
 - Same custom footprint as global costmap
 - `footprint_padding: 0.04 m` adds a small safety buffer around the footprint
 
-### AMCL (Localisation)
-AMCL (Adaptive Monte Carlo Localisation) is used to localise the robot within the SLAM-generated map.
+### SLAM (Simultaneous Localization and Mapping)
 
-- `laser_model_type: "likelihood_field"` — robust to noise compared to beam model
-- `max_particles: 2000`, `min_particles: 500` — sufficient particle count for a small indoor environment
-- `update_min_d: 0.25 m`, `update_min_a: 0.2 rad` — filter only updates after meaningful motion, reducing CPU load
-- Motion model noise (`alpha1`–`alpha5`) all set to `0.2` — tuned to match the TurtleBot3's odometry characteristics
+The system uses **SLAM** for both map building and localization during autonomous exploration. Since the environment is initially unknown, SLAM continuously updates the occupancy grid map while simultaneously tracking the robot's pose within it.
+
+The SLAM node (either `slam_toolbox` in online/async mode or Cartographer, depending on deployment) publishes:
+- `/map` topic (`OccupancyGrid`) — the continuously updated occupancy grid used by Nav2's global costmap and the frontier detection algorithm
+- `map` → `odom` TF transform — provides localization within the map frame
+
+This is different from the typical Nav2 setup which uses AMCL (Adaptive Monte Carlo Localization) with a pre-built static map. AMCL is **not used** in this system because the map doesn't exist beforehand — it's being built in real-time as the robot explores.
 
 ---
 
