@@ -45,6 +45,6 @@ Station B (Dynamic Delivery): Track a moving target (sliding rail), synchronize 
 This repository contains:
 - The full ros2 package to run our system + firmware for RPI [Link_to Steps_To_Run](Documentation/CLI_real_autonomous_system.md)
 - Camera Calibration code [Link_to Steps_To_Run](Documentation/CLI_testing_system.md)
-- Testing code for OpenCV [Link_to Steps_To_Run](Documentation/CLI_testing_system.md)
-- Full technical documentation for this project. [Link_to_Documentation_Breakdown](Documentation/README.md)
+- Testing code for OpenCV and Gazebo [Link_to Steps_To_Run](Documentation/CLI_testing_system.md)
+- Full technical documentation for this project [Link_to_Documentation_Breakdown](Documentation/README.md)
 
