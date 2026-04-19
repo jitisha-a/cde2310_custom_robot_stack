@@ -98,13 +98,13 @@ For the launch calculations, we aim to determine what RPM a flywheel of radius 2
 <img width="372" height="68" alt="image" src="https://github.com/user-attachments/assets/1cbc9642-6616-47ef-aa58-d45a71fe7655" />
 <img width="276" height="105" alt="image" src="https://github.com/user-attachments/assets/3e197ae2-279c-4e2d-b0ba-7628a0f0046c" />
 <img width="248" height="122" alt="image" src="https://github.com/user-attachments/assets/ee257894-6a97-4f6c-9974-5995fd1ac546" />
-Hence, we chose the RS360 Motor as it has a no-load RPM of >10000, to give us more flexibility to fire from a greater distance if need be.
+Hence, we chose the RS360 Motor as it has a no-load RPM of >10000, giving us more flexibility to fire from a greater distance if need be.
 
 ## Design Reasoning
-1. A flexible hose was chosen for holding the ping pong balls as its flexibility allows for more room for error and relies on placement of the flexible mounts rather than a rigid container. This allows us to achieve a relatively small footprint compared to other teams.
-2. A single motor was chosen to reduce complexity and cost of the project. 2 motors might result in inconsistent trajectory should motor control not be precise.
-3. A separate mount for the motor was chosen for added flexibility in turing the contact of the ping pong ball with the flywheel.
-4. A servo arm with an extension was chosen to actuate firing the ping pong ball as it provides the range of motion required without the complexity of cams or gears. When the arm is in the firing position, it prevents the next ping pong ball from rolling into the barrel.
+1. A flexible hose was chosen for holding the ping pong balls as its flexibility allows for trial and error in terms of the angle and placement of the tube, alongside the flexibility of the placement of the mounting brackets, rather than a rigid tube or structure. This allows us to achieve a relatively small footprint compared to other teams.
+2. A single flywheel system was chosen to reduce the complexity and cost of the project. A dual flywheel system might result in an inconsistent trajectory should motor control and the friction between the flywheels and the ping pong ball not be precise.
+3. A separate mount for the motor was chosen for added flexibility in tuning the amount of compression between the ping pong ball and the flywheel for the ideal launch behaviour for the mission.
+4. A servo with an extension arm was chosen to actuate firing the ping pong ball, as it provides the range of motion required without the complexity of cams or gears. When the arm is in the firing position, it prevents the next ping pong ball from rolling into the barrel.
 
 <img src="../Images/Barrel_Section_Load.png" width="400" alt="Barrel">
 <div className="w-full flex items-center justify-center">
