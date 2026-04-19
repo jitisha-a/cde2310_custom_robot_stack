@@ -42,5 +42,9 @@ Station B (Dynamic Delivery): Track a moving target (sliding rail), synchronize 
 
 ## Breakdown of repository
 
-This repository contains the full technical documentation for this project along with our software and firmware code. 
+This repository contains:
+- The full ros2 package to run our system + firmware for RPI [Link_to Steps_To_Run](Documentation/CLI_real_autonomous_system.md)
+- Camera Calibration code [Link_to Steps_To_Run](Documentation/CLI_testing_system.md)
+- Testing code for OpenCV [Link_to Steps_To_Run](Documentation/CLI_testing_system.md)
+- Full technical documentation for this project. [Link_to_Documentation_Breakdown](Documentation/README.md)
 
