@@ -82,17 +82,43 @@ class SupervisorNode(Node):
                 self.current_mode = 'ROAM'
             else:
                 self.get_logger().info('Frontiers exhausted and all missions complete.')
+        elif not msg.data and self.current_mode == 'ROAM':
+            # Frontier node found new frontiers while roaming
+            self.frontiers_exhausted = False
+            self.get_logger().info('New frontiers available — switching ROAM -> EXPLORE.')
+            self.current_mode = 'EXPLORE'
 
     def coarse_goal_ready_callback(self, msg: Bool):
-        if msg.data and self.current_mode in ('EXPLORE', 'ROAM'):
-            if self.target_station_type == 'stationary':
-                self.get_logger().info('Stationary target found. Switching to APPROACH_STATIONARY.')
-                self.current_mode = 'APPROACH_STATIONARY'
-            elif self.target_station_type == 'dynamic':
-                self.get_logger().info('Dynamic target found. Switching to APPROACH_DYNAMIC.')
-                self.current_mode = 'APPROACH_DYNAMIC'
-            else:
-                self.get_logger().warn('Coarse goal ready but target station type unknown.')
+        if not msg.data or self.current_mode not in ('EXPLORE', 'ROAM'):
+            return
+        # store pending — marker ID may arrive in the same or next spin cycle
+        self._coarse_goal_pending = True
+
+    def target_station_marker_callback(self, msg: Int32):
+        self.target_station_marker_id = msg.data
+        # process any pending coarse goal now that we have the marker ID
+        if getattr(self, '_coarse_goal_pending', False):
+            self._coarse_goal_pending = False
+            self._process_coarse_goal()
+
+    def _process_coarse_goal(self):
+        if self.current_mode not in ('EXPLORE', 'ROAM'):
+            return
+        if self.target_station_marker_id == 23:
+            inferred_type = 'stationary'
+        elif self.target_station_marker_id == 25:
+            inferred_type = 'dynamic'
+        else:
+            self.get_logger().warn(
+                f'Coarse goal ready but unknown marker ID {self.target_station_marker_id}.'
+            )
+            return
+        self.target_station_type = inferred_type
+        next_mode = 'APPROACH_STATIONARY' if inferred_type == 'stationary' else 'APPROACH_DYNAMIC'
+        self.get_logger().info(
+            f'Marker {self.target_station_marker_id} ({inferred_type}) found. Switching to {next_mode}.'
+        )
+        self.current_mode = next_mode
 
     def approach_done_callback(self, msg: Bool):
         if not msg.data:
@@ -124,9 +150,6 @@ class SupervisorNode(Node):
             self.current_mode = 'LAUNCH_DYNAMIC'
             self.dynamic_launch_sent = False
 
-    def target_station_marker_callback(self, msg: Int32):
-        self.target_station_marker_id = msg.data
-
     def launch_done_callback(self, msg: Bool):
         if not msg.data:
             return
@@ -140,6 +163,7 @@ class SupervisorNode(Node):
     
             self.get_logger().info('Launch complete. Returning to EXPLORE.')
             self.current_mode = 'EXPLORE'
+            self.frontiers_exhausted = False  # reset — new areas may be reachable after delivery
             self.target_station_type = ''
             self.stationary_launch_sent = False
             self.dynamic_launch_sent = False

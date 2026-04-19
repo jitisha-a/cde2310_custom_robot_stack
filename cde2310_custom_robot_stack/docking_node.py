@@ -68,6 +68,7 @@ class RobotState(Enum):
 
     # fine stage = closed-loop centering + docking
     FINE_ALIGN_AND_DOCK = auto()
+    FINAL_HEADING_ALIGN = auto()
 
     DONE = auto()
 
@@ -85,49 +86,60 @@ class ArucoPose(Node):
 
         self.show_debug = True
 
-        # detection / stability tuning 
+        # # detection / stability tuning 
         self.required_detection_frames = 5      # N correct frames before we say ID is really found
         self.pose_window_size = 5               # use N last pose readings to check for stability
         self.pos_std_thresh = 0.01              # meters of position variation allowed
         self.angle_std_thresh_deg = 5.0         # degrees of angle variation allowed
         
-        # final docking target
-        # want marker centered (tx ~ 0) and z ~ 0.40 m
-        self.target_z_m = 0.312                  # 40 cm - target docking distance 
-        self.target_z_tol_m = 0.03 #0.01             # 1 cm tolerance for docking distance
 
-        self.target_x_m = 0.05 #0.03
-        self.target_x_tol_m = 0.015
 
-        # coarse alignment settings
-        # if |tx| too large, do rough side-shift first
-
-        # decide whether coarse alignment is needed
-        self.tx_coarse_thresh_m = 0.01 #0.02   # if |tx| > 5 cm, do coarse side correctrion before fine docking
-
-        # coarse alignment settings
-        self.coarse_shift_scale = 0.7    # shift distance = scale * |tx|
-        self.coarse_shift_max_m = 0.20   # cap maximum open-loop shift distance
-        self.coarse_forward_speed = 0.04  # forward speed during rough shift
-        self.coarse_rotate_speed = 0.3    # angular speed during odom-based 90 turn
-
-        # robot-specific timing estimates
-        # tune these on your real robot TO DO
-        # fine docking P-controller gains
-        self.kp_x = 2.5
-        self.kp_z = 0.5 #0.35
-        self.max_linear_speed = 0.05
-        self.max_angular_speed = 0.30
-        self.align_first_x_thresh_m = 0.05 #0.03  # if tx is still big, rotate first before moving
-
-        # coarse state memory
-        # coarse alignment memory
-        # coarse_dir_sign:
-        #   +1 -> marker on right -> robot should shift right
-        #   -1 -> marker on left  -> robot should shift left
+        # # coarse state memory
+        # # coarse alignment memory
+        # # coarse_dir_sign:
+        # #   +1 -> marker on right -> robot should shift right
+        # #   -1 -> marker on left  -> robot should shift left
         self.coarse_dir_sign = 0         # +1 means marker on right, -1 means marker on left
         self.coarse_shift_distance_m = 0.0
         self.state_start_time_ns = None
+
+        # final docking target
+        self.target_z_m = 0.21
+        self.target_z_tol_m = 0.03
+        
+        self.target_x_m = 0.03
+        self.target_x_tol_m = 0.005
+        
+        # decide coarse from heading only
+        self.coarse_heading_thresh_deg = 10.0
+        
+        # coarse alignment settings
+        self.coarse_shift_max_m = 0.25
+        self.coarse_forward_speed = 0.05
+        self.coarse_rotate_speed = 0.4
+        
+        # allow coarse only once in a docking sequence
+        self.coarse_done_in_sequence = False
+        
+        # store heading error captured at coarse-start
+        self.coarse_heading_err_rad = 0.0
+        
+        # fine PID on tx and tz
+        self.kp_x = 2.5
+        self.kp_z = 0.5
+        self.max_linear_speed = 0.05
+        self.max_angular_speed = 0.30
+        self.align_first_x_thresh_m = 0.10   # 10 cm threshold
+        
+        # final heading alignment
+        self.kp_heading_final = 0.8
+        self.max_heading_align_speed = 0.10
+        self.final_heading_tol_deg = 5.0
+
+
+        self.final_heading_correction_active = False
+        self.final_heading_target_yaw = 0.0
+        self.final_heading_max_step_deg = 8.0
 
         # odometry state
         # yaw will come from /odom
@@ -233,7 +245,7 @@ class ArucoPose(Node):
     def mode_callback(self, msg):
         old_mode = self.current_mode
         self.current_mode = msg.data
-    
+
         if old_mode not in ['DOCK_STATIONARY', 'DOCK_DYNAMIC'] and self.current_mode in ['DOCK_STATIONARY', 'DOCK_DYNAMIC']:
             self.get_logger().info(f'Entering {self.current_mode}. Resetting docking FSM.')
             self.state = RobotState.SEARCHING_FOR_ID
@@ -241,6 +253,13 @@ class ArucoPose(Node):
             self.done_published = False
             self.reset_pose_history()
             self.turn_active = False
+
+            self.coarse_dir_sign = 0
+            self.coarse_shift_distance_m = 0.0
+            self.coarse_done_in_sequence = False
+            self.coarse_heading_err_rad = 0.0
+            self.final_heading_correction_active = False
+            self.final_heading_target_yaw = 0.0
 
     
     def target_marker_callback(self, msg):
@@ -478,7 +497,7 @@ class ArucoPose(Node):
         #Check if marker depth is at target docking distance.
         #tz is marker center forward distance in camera frame.
         tz = float(tvec[2, 0]) # cause tvec column vector stored as matrix so row 2 column 0 
-        return abs(tz - self.target_z_m) <= self.target_z_tol_m or tz <= self.target_z_m
+        return abs(tz - self.target_z_m) <= self.target_z_tol_m
     
     def x_centered(self, tvec):
         #Check if marker is centered horizontally in camera frame.
@@ -488,34 +507,42 @@ class ArucoPose(Node):
         return abs(tx - self.target_x_m) <= self.target_x_tol_m
     
 
-    def docking_goal_reached(self, tvec):
-        #Final docking condition: centered and at target z
-        return self.z_reached(tvec) and self.x_centered(tvec)
-
     def clip(self, val, low, high):
         return max(low, min(high, val))
 
+    def heading_aligned(self, rvec):
+        heading_err = self.compute_heading_error(rvec)
+        return abs(heading_err) <= math.radians(self.final_heading_tol_deg)
+
+    def docking_position_reached(self, tvec):
+        return self.z_reached(tvec) and self.x_centered(tvec)
+    
+
+    def compute_heading_error(self, rvec):
+        """
+        Heading error in radians.
+        Straight-on should be near 0.
+        """
+        R, _ = cv2.Rodrigues(rvec)
+        marker_normal = R[:, 2]
+    
+        nx = float(marker_normal[0])
+        nz = float(marker_normal[2])
+    
+        heading_err = math.atan2(nx, -nz)
+        return heading_err
+        
     def compute_fine_docking_command(self, tvec):
-        
-        # Fine closed-loop docking command.
-
-        # angular_z <- from tx
-        # linear_x  <- from tz
-
-        # If tx still large, rotate first before moving forward.
-        
         tx = float(tvec[0, 0])
         tz = float(tvec[2, 0])
-
+    
         x_err = tx - self.target_x_m
         z_err = tz - self.target_z_m
-
-        # If marker is on right (tx > 0), robot should usually rotate right.
-        # If your robot turns wrong direction, flip this sign.
+    
         angular_z = -self.kp_x * x_err
         angular_z = self.clip(angular_z, -self.max_angular_speed, self.max_angular_speed)
-
-        # If marker still too off-center, rotate first and do not move forward yet
+    
+        # if tx is still big, rotate first before moving
         if abs(x_err) > self.align_first_x_thresh_m:
             linear_x = 0.0
         else:
@@ -524,35 +551,58 @@ class ArucoPose(Node):
                 linear_x = self.clip(linear_x, 0.0, self.max_linear_speed)
             else:
                 linear_x = 0.0
-
+    
         return linear_x, angular_z, tx, tz
 
-    def prepare_coarse_alignment(self, tvec):
-        
-        # Decide side-shift direction and shift amount from tx.
 
-        # If tx > 0: marker is on right -> shift robot right
-        # If tx < 0: marker is on left  -> shift robot left
-        
-        tx = float(tvec[0, 0])
+    def compute_final_heading_command(self, rvec):
+        heading_err = self.compute_heading_error(rvec)
+    
+        angular_z = -self.kp_heading_final * heading_err
+        angular_z = self.clip(
+            angular_z,
+            -self.max_heading_align_speed,
+            self.max_heading_align_speed
+        )
+    
+        if abs(angular_z) < 0.02:
+            angular_z = 0.0
+    
+        return angular_z, heading_err
+            
 
-        if tx > 0.0:
+    def prepare_coarse_alignment(self, rvec, tvec):
+        """
+        Single coarse alignment round:
+    
+        1. capture heading error at start
+        2. compute shift distance = tan(theta) * tz
+        3. rotate 90 deg toward correction side
+        4. move by shift distance
+        5. rotate back by (90 + heading_error_at_start)
+        """
+        heading_err = self.compute_heading_error(rvec)
+        tz = float(tvec[2, 0])
+    
+        self.coarse_heading_err_rad = heading_err
+    
+        # choose correction direction from heading error sign
+        if heading_err > 0.0:
             self.coarse_dir_sign = +1
         else:
             self.coarse_dir_sign = -1
-
-        self.coarse_shift_distance_m = min(
-            self.coarse_shift_scale * abs(tx),
-            self.coarse_shift_max_m
-        )
-
+    
+        est_shift = abs(math.tan(heading_err)) * tz
+        self.coarse_shift_distance_m = min(est_shift, self.coarse_shift_max_m)
+    
         self.get_logger().info(
-            f"Preparing coarse alignment | "
-            f"tx={tx:+.3f} m | "
+            f"Preparing single coarse alignment | "
+            f"heading_err={math.degrees(heading_err):+.2f} deg | "
+            f"tz={tz:.3f} m | "
             f"dir_sign={self.coarse_dir_sign:+d} | "
             f"shift_distance={self.coarse_shift_distance_m:.3f} m"
         )
-
+        
     def coarse_shift_time_s(self):
         
         # Convert desired coarse shift distance into how long to drive forward.
@@ -663,7 +713,7 @@ class ArucoPose(Node):
             else:
                 self.get_logger().info("Pose not stable yet. Move forward and keep trying.")
                 self.state = RobotState.MOVING_FORWARD_FOR_STABLE_POSE
-
+            
             self.draw_debug(frame, corners_list, ids, rvec, tvec, text=f"STATE: {self.state.name}")
             return
     
@@ -697,36 +747,40 @@ class ArucoPose(Node):
         
         if self.state == RobotState.DECIDE_DOCKING_STRATEGY:
             self.stop_motion()
-
-            if not found_target or not pose_ok:
+        
+            if not found_target or not pose_ok or rvec is None or tvec is None:
                 self.get_logger().warn("Lost target before docking strategy decision. Searching again.")
                 self.detect_count = 0
                 self.reset_pose_history()
                 self.state = RobotState.SEARCHING_FOR_ID
                 self.draw_debug(frame, corners_list, ids, text=f"STATE: {self.state.name}")
                 return
-
+        
             tx = float(tvec[0, 0])
             tz = float(tvec[2, 0])
-
+            heading_err = self.compute_heading_error(rvec)
+            heading_err_deg = math.degrees(heading_err)
+        
             self.get_logger().info(
-                f"DECIDE_DOCKING_STRATEGY | tx={tx:+.3f} m, tz={tz:+.3f} m"
+                f"DECIDE_DOCKING_STRATEGY | "
+                f"tx={tx:+.3f} m, tz={tz:+.3f} m, "
+                f"heading_err={heading_err_deg:+.2f} deg | "
+                f"coarse_done={self.coarse_done_in_sequence}"
             )
-
-            if abs(tx) <= self.tx_coarse_thresh_m:
-                self.get_logger().info(
-                    "tx is already small. Skip coarse alignment and go straight to fine docking."
-                )
+        
+            if self.coarse_done_in_sequence:
+                self.get_logger().info("Coarse alignment already used in this docking sequence. Going to fine docking.")
                 self.state = RobotState.FINE_ALIGN_AND_DOCK
-            else:
-                # prepare rough side correction
-                self.prepare_coarse_alignment(tvec)
+            elif abs(heading_err_deg) > self.coarse_heading_thresh_deg:
+                self.prepare_coarse_alignment(rvec, tvec)
                 self.state = RobotState.COARSE_ALIGN_ROTATE_1
-                self.get_logger().info("tx is large. Starting coarse side-shift alignment.")
-
+                self.get_logger().info("Heading error > 10 deg. Starting single coarse alignment.")
+            else:
+                self.get_logger().info("Heading error <= 10 deg. Skip coarse alignment and go straight to fine docking.")
+                self.state = RobotState.FINE_ALIGN_AND_DOCK
+        
             self.draw_debug(frame, corners_list, ids, rvec, tvec, text=f"STATE: {self.state.name}")
             return
-        
 
         # STATE: COARSE_ALIGN_ROTATE_1
         # Rotate 90 deg toward side we want to shift
@@ -737,25 +791,23 @@ class ArucoPose(Node):
                 self.get_logger().warn("Odometry not ready. Cannot do coarse rotate 1 yet.")
                 self.draw_debug(frame, corners_list, ids, rvec, tvec, text=f"STATE: {self.state.name}")
                 return
-
-            # Start turn only once
+        
             if not self.turn_active:
                 if self.coarse_dir_sign > 0:
-                    self.get_logger().info("Coarse rotate 1: marker on right -> rotate right 90 deg.")
+                    self.get_logger().info("Coarse rotate 1: rotate right 90 deg.")
                     ok = self.start_odom_turn(-90.0)
                 else:
-                    self.get_logger().info("Coarse rotate 1: marker on left -> rotate left 90 deg.")
+                    self.get_logger().info("Coarse rotate 1: rotate left 90 deg.")
                     ok = self.start_odom_turn(+90.0)
-
+        
                 if not ok:
                     self.draw_debug(frame, corners_list, ids, rvec, tvec, text=f"STATE: {self.state.name}")
                     return
-
-            # Keep updating turn until done
+        
             if self.update_odom_turn():
                 self.start_timed_state()
                 self.state = RobotState.COARSE_ALIGN_SHIFT
-
+        
             self.draw_debug(frame, corners_list, ids, rvec, tvec, text=f"STATE: {self.state.name}")
             return
         
@@ -764,17 +816,18 @@ class ArucoPose(Node):
         # Move forward to approximate lateral shift
         # still open-loop and time-based
         # --------------------------------------------------------
+       
         if self.state == RobotState.COARSE_ALIGN_SHIFT:
             elapsed = self.elapsed_in_state_s()
             shift_time = self.coarse_shift_time_s()
-
+        
             self.publish_cmd(self.coarse_forward_speed, 0.0)
-
+        
             if elapsed >= shift_time:
                 self.stop_motion()
                 self.state = RobotState.COARSE_ALIGN_ROTATE_2
                 self.get_logger().info("Finished coarse shift. Starting coarse rotate 2.")
-
+        
             self.draw_debug(frame, corners_list, ids, rvec, tvec, text=f"STATE: {self.state.name}")
             return
         
@@ -787,26 +840,34 @@ class ArucoPose(Node):
                 self.get_logger().warn("Odometry not ready. Cannot do coarse rotate 2 yet.")
                 self.draw_debug(frame, corners_list, ids, rvec, tvec, text=f"STATE: {self.state.name}")
                 return
-
-            # Start turn only once
+        
+            # second turn angle = 90 + heading_error_at_start
+            rot2_angle_deg = 90.0 + math.degrees(abs(self.coarse_heading_err_rad))
+        
             if not self.turn_active:
                 if self.coarse_dir_sign > 0:
-                    self.get_logger().info("Coarse rotate 2: rotate left 90 deg to face marker again.")
-                    ok = self.start_odom_turn(+90.0)
+                    self.get_logger().info(
+                        f"Coarse rotate 2: rotate left {rot2_angle_deg:.2f} deg."
+                    )
+                    ok = self.start_odom_turn(+rot2_angle_deg)
                 else:
-                    self.get_logger().info("Coarse rotate 2: rotate right 90 deg to face marker again.")
-                    ok = self.start_odom_turn(-90.0)
-
+                    self.get_logger().info(
+                        f"Coarse rotate 2: rotate right {rot2_angle_deg:.2f} deg."
+                    )
+                    ok = self.start_odom_turn(-rot2_angle_deg)
+        
                 if not ok:
                     self.draw_debug(frame, corners_list, ids, rvec, tvec, text=f"STATE: {self.state.name}")
                     return
-
-            # Keep updating turn until done
+        
             if self.update_odom_turn():
+                self.coarse_done_in_sequence = True
                 self.reset_pose_history()
                 self.state = RobotState.CHECKING_INITIAL_POSE_STABILITY
-                self.get_logger().info("Finished coarse rotate 2. Reacquire stable pose, then fine docking.")
-
+                self.get_logger().info(
+                    "Finished single coarse alignment round. Reacquire stable pose, then fine docking."
+                )
+        
             self.draw_debug(frame, corners_list, ids, rvec, tvec, text=f"STATE: {self.state.name}")
             return
 
@@ -817,8 +878,15 @@ class ArucoPose(Node):
         #  - center marker (tx -> 0)
         #  - stop at tz = 0.40 m
         # --------------------------------------------------------
+        # --------------------------------------------------------
+# STATE: FINE_ALIGN_AND_DOCK
+# Fine closed-loop stage:
+#  - center marker (tx -> target_x)
+#  - face marker straight-on using marker normal
+#  - stop at target z
+# --------------------------------------------------------
         if self.state == RobotState.FINE_ALIGN_AND_DOCK:
-            if not found_target or not pose_ok:
+            if not found_target or not pose_ok or tvec is None or rvec is None:
                 self.get_logger().warn("Lost target during fine docking. Stop and search again.")
                 self.stop_motion()
                 self.detect_count = 0
@@ -826,33 +894,98 @@ class ArucoPose(Node):
                 self.state = RobotState.SEARCHING_FOR_ID
                 self.draw_debug(frame, corners_list, ids, text=f"STATE: {self.state.name}")
                 return
-
+        
             linear_x, angular_z, tx, tz = self.compute_fine_docking_command(tvec)
-
+            heading_err = self.compute_heading_error(rvec)
+        
             self.get_logger().info(
                 f"FINE_ALIGN_AND_DOCK | "
-                f"tx={tx:+.3f} m, tz={tz:+.3f} m | "
+                f"tx={tx:+.3f} m, tz={tz:+.3f} m, "
+                f"heading_err={math.degrees(heading_err):+.2f} deg | "
                 f"cmd.linear.x={linear_x:+.3f}, cmd.angular.z={angular_z:+.3f}"
             )
-
-            if self.docking_goal_reached(tvec):
-                self.get_logger().info("Docking goal reached: centered and at target z.")
+        
+            if self.docking_position_reached(tvec):
+                self.get_logger().info("Docking position reached. Switching to final heading alignment.")
                 self.stop_motion()
                 self.state = RobotState.DONE
             else:
                 self.publish_cmd(linear_x, angular_z)
-
+        
             self.draw_debug(
                 frame,
                 corners_list,
                 ids,
                 rvec,
                 tvec,
-                text=f"STATE: {self.state.name} | tx={tx:+.3f} tz={tz:+.3f}"
+                text=(
+                    f"STATE: {self.state.name} | "
+                    f"tx={tx:+.3f} tz={tz:+.3f} "
+                    f"head={math.degrees(heading_err):+.1f}"
+                )
             )
             return
 
 
+        if self.state == RobotState.FINAL_HEADING_ALIGN:
+            if not found_target or not pose_ok or rvec is None or tvec is None:
+                self.get_logger().warn("Lost target during final heading alignment. Stop and search again.")
+                self.stop_motion()
+                self.detect_count = 0
+                self.reset_pose_history()
+                self.final_heading_correction_active = False
+                self.state = RobotState.SEARCHING_FOR_ID
+                self.draw_debug(frame, corners_list, ids, text=f"STATE: {self.state.name}")
+                return
+        
+            heading_err = self.compute_heading_error(rvec)
+            heading_err_deg = math.degrees(heading_err)
+        
+            self.get_logger().info(
+                f"FINAL_HEADING_ALIGN | heading_err={heading_err_deg:+.2f} deg"
+            )
+        
+            # done if already good enough
+            if abs(heading_err_deg) <= self.final_heading_tol_deg:
+                self.get_logger().info("Final heading aligned. Docking complete.")
+                self.stop_motion()
+                self.final_heading_correction_active = False
+                self.state = RobotState.DONE
+                self.draw_debug(frame, corners_list, ids, rvec, tvec, text=f"STATE: {self.state.name}")
+                return
+        
+            # start one bounded correction only once
+            if not self.final_heading_correction_active:
+                correction_deg = max(
+                    -self.final_heading_max_step_deg,
+                    min(self.final_heading_max_step_deg, heading_err_deg)
+                )
+        
+                self.get_logger().info(
+                    f"Starting bounded final heading correction of {correction_deg:+.2f} deg"
+                )
+        
+                ok = self.start_odom_turn(correction_deg)
+                if not ok:
+                    self.draw_debug(frame, corners_list, ids, rvec, tvec, text=f"STATE: {self.state.name}")
+                    return
+        
+                self.final_heading_correction_active = True
+        
+            # wait for turn to finish, then re-measure next frame
+            if self.update_odom_turn():
+                self.final_heading_correction_active = False
+        
+            self.draw_debug(
+                frame,
+                corners_list,
+                ids,
+                rvec,
+                tvec,
+                text=f"STATE: {self.state.name} | head={heading_err_deg:+.1f}"
+            )
+            return
+    
             # ######## STATE: DONE #########
         if self.state == RobotState.DONE:
             self.stop_motion()
