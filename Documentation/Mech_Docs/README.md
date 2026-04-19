@@ -29,7 +29,7 @@ Gravity-fed feeding
 - A flexible tube used to wrap around the Turtlebot to reduce bulk from a rigid tube
 - Length of 9 ping pong balls: 9x40mm= 320mm > Height/Length of the bot, hence the tube is wrapped around the bot to achieve a smaller footprint, as the tube cannot be vertical to block the Lidar sensor or sideways to ensure fitment into the lift.
 
-### Additional design Reasoning
+### Additional design reasonings
 1. A flexible hose was chosen for holding the ping pong balls as its flexibility allows for trial and error in terms of the angle and placement of the tube, alongside the flexibility of the placement of the mounting brackets, rather than a rigid tube or structure. This allows us to achieve a relatively small footprint compared to other teams.
 2. A separate mount for the motor was chosen for added flexibility in tuning the amount of compression between the ping pong ball and the flywheel for the ideal launch behaviour for the mission.
 
@@ -45,7 +45,7 @@ Gravity-fed feeding
 
 3. The mounting holes for the motor mount and barrel are slots, rather than holes. This allows for some flexibility in mounting and positioning to ensure full functionality of the bot.
 
-## Procurement and manufacturing of components
+## Procurement and Manufacturing of Components
 
 After reviewing the fabrication methods through activity M4, we decided to proceed with **3D printing** for its ability to create complex shapes, especially our barrel with its geometry and mounting points for some of the sensors and actuators. Considering the load our parts will be under, the structural strength of FDM 3D-printed PLA parts are sufficent given the geometry and scale. Should cost be a concern after creating the Bill of Materials, we could also fabricate parts with manual fabrication methods. For example, the barrel could be cut from a PVC pipe and glued to an acrylic plate to achieve a similar geometry to our barrel.
 
