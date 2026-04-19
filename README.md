@@ -48,3 +48,6 @@ This repository contains:
 - Testing code for OpenCV and Gazebo [Link_to Steps_To_Run](Documentation/CLI_testing_system.md)
 - Full technical documentation for this project [Link_to_Documentation_Breakdown](Documentation/README.md)
 
+## Youtube Link to Screen Recording of Remote Desktop During Final Run
+
+[Click_Here!](https://youtu.be/m-T_tzmzXRo?si=5tFvsvxTuXsTgGau)
