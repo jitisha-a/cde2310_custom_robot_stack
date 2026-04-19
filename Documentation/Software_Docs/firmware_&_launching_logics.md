@@ -48,7 +48,7 @@ The DC motor is driven in reverse using:
 - `IN1 = LOW`
 - `IN2 = HIGH`
 
-Motor speed is controlled through PWM on the enable pin. A helper function clamps duty cycle values to the valid range of 0 to 100%. :contentReference[oaicite:7]{index=7} :contentReference[oaicite:8]{index=8}
+Motor speed is controlled through PWM on the enable pin. A helper function clamps duty cycle values to the valid range of 0 to 100%.
 
 ### 3.2 Servo Control
 
@@ -128,14 +128,14 @@ These values determine how aggressively the flywheel spins up and how much time 
 
 A few key design choices in the stationary launcher are worth noting:
 
->> The launch process is fully deterministic once triggered.
->> A threaded implementation is used so the ROS node remains responsive.
->> The motor is always stopped in both normal completion and cleanup paths.
->> Duplicate commands are ignored while a launch is already running.
+-> The launch process is fully deterministic once triggered.
+-> A threaded implementation is used so the ROS node remains responsive.
+-> The motor is always stopped in both normal completion and cleanup paths.
+-> Duplicate commands are ignored while a launch is already running.
 
 This keeps the node simple and robust for a fixed target station.
 
--- 
+---
 
 ## 5. Dynamic Launcher Firmware
 
@@ -146,7 +146,7 @@ The dynamic launcher is split into two cooperating nodes:
 
 This split was necessary because the moving target cannot be launched into using fixed time delays alone. Instead, launch permission must be generated only when the target marker is fully and reliably visible.
 
---
+---
 
 ## 6. Dynamic Launch Clearance Node
 
@@ -234,7 +234,7 @@ The effective logic is:
 
 This means each ball launch is tied to a fresh confirmed reappearance of the dynamic target marker.
 
---
+---
 
 ## 7. Dynamic Launcher Hardware Node
 
@@ -318,7 +318,7 @@ awaiting_launch is cleared
 
 If an abort or failure occurs during launch, the node stops the sequence and does not publish completion. Cleanup also ensures that PWM outputs are stopped and GPIO is released properly on shutdown.
 
---
+---
 
 ## 8. End-to-End Dynamic Launch Handshake
 
@@ -337,7 +337,7 @@ FSM / supervisor
 
 This approach was more robust than a purely timed dynamic launch, because it synchronizes each individual launch to actual target visibility instead of relying on estimated motion timing alone.
 
---
+---
 
 ## 9. Why the Two Launch Strategies Were Different
 
@@ -354,7 +354,7 @@ launch permission must depend on live visual confirmation
 
 Because of this, the stationary launcher is a self-contained timed firmware sequence, whereas the dynamic launcher is a perception-triggered hardware execution sequence.
 
--- 
+---
 
 ## 10. Key Design Decisions
 
