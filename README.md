@@ -33,7 +33,8 @@ Station B (Dynamic Delivery): Track a moving target (sliding rail), synchronize 
 - Custom-built Flywheel for delivering payload (balls)
 
 **Final TurtleBot CAD Model**
-<img src="../Images/Full_Cad_ISO.png" width="400">
+<img src="Documentation/Images/Full_Cad_ISO.png" width="400">
+
 
 **Final TurtleBot Image**
 
