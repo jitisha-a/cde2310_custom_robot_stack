@@ -32,7 +32,7 @@ Station B (Dynamic Delivery): Track a moving target (sliding rail), synchronize 
 - OpenCV (Pose Estimation) for AruCo marker detection and precise docking through a custom FSM and P-controller
 - Custom-built Flywheel for delivering payload (balls)
 
-**Final TurtleBot CAD Model**
+**<u>Final TurtleBot CAD Model</u>**
 
 <img src="Documentation/Images/Full_Cad_ISO.png" width="400">
 
