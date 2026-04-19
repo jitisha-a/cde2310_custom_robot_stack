@@ -48,7 +48,37 @@ This was done by:
 
 This produced a heading error that was approximately:
 - **0 degrees** when the robot camera was facing the marker front-on
-- positive or negative when the robot was angled relative to the marker 
+- positive or negative when the robot was angled relative to the marker
+
+Mathematics:
+
+\[
+\mathbf{R} = \operatorname{Rodrigues}(\mathbf{rvec})
+\]
+
+The marker normal is the marker’s local z-axis expressed in the camera frame:
+
+\[
+\mathbf{n} =
+\begin{bmatrix}
+n_x \\
+n_y \\
+n_z
+\end{bmatrix}
+=
+\mathbf{R}[:,2]
+\]
+
+We then define the heading error as:
+
+\[
+\theta = \operatorname{atan2}(n_x,\ -n_z)
+\]
+
+This gives a heading error that is approximately:
+
+- \(\theta \approx 0\) when the camera is facing the marker head-on
+- \(\theta > 0\) or \(\theta < 0\) when the robot is angled relative to the marker
 
 ---
 
