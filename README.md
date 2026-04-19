@@ -38,7 +38,7 @@ Station B (Dynamic Delivery): Track a moving target (sliding rail), synchronize 
 
 ### Final TurtleBot Image
 
-<img src="Documentation/Images/turtlebot_image_real.png" width="500">
+<img src="Documentation/Images/turtlebot_image_real.jpg" width="500">
 
 ## Breakdown of repository
 
