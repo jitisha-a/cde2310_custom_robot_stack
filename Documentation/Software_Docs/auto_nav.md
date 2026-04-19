@@ -108,13 +108,13 @@ Two costmaps are maintained simultaneously:
 
 ### SLAM (Simultaneous Localization and Mapping)
 
-The system uses **SLAM** for both map building and localization during autonomous exploration. Since the environment is initially unknown, SLAM continuously updates the occupancy grid map while simultaneously tracking the robot's pose within it.
+The system uses SLAM during exploration to both construct a map of the environment and estimate the robot's pose within it. Unlike AMCL, which assumes a pre-existing static map, SLAM operates in unknown environments by continuously updating an occupancy grid map while simultaneously performing localization.
 
-The SLAM node (either `slam_toolbox` in online/async mode or Cartographer, depending on deployment) publishes:
-- `/map` topic (`OccupancyGrid`) — the continuously updated occupancy grid used by Nav2's global costmap and the frontier detection algorithm
-- `map` → `odom` TF transform — provides localization within the map frame
+The SLAM node (e.g. `slam_toolbox` in online asynchronous mode) publishes:
+- `/map` (`OccupancyGrid`) — continuously updated map used by Nav2 costmaps and frontier detection
+- `map` → `odom` transform — estimates robot pose relative to the evolving map
 
-This is different from the typical Nav2 setup which uses AMCL (Adaptive Monte Carlo Localization) with a pre-built static map. AMCL is **not used** in this system because the map doesn't exist beforehand — it's being built in real-time as the robot explores.
+Nav2 uses this transform to perform global planning and localization without requiring a prebuilt map.
 
 ---
 
@@ -128,19 +128,19 @@ Frontier exploration is a classical autonomous exploration strategy. A **frontie
 
 The `FrontierExplorer` node runs a 1-second timer loop (`explore_once`) that:
 
-1. Gets the robot's current pose from TF (`map` → `base_link`)
+1. Gets the robot's current pose from TF (`map` → `base_link`, see [Appendix A](#appendix-a-tf-localization-lookup))
 2. Reads the latest occupancy grid from `slam_toolbox`
 3. Detects all frontier clusters via BFS from the robot's current cell
 4. Scores clusters by information gain and selects the best target
 5. Sends a `NavigateToPose` goal to Nav2
 
-**Frontier detection** works in two passes:
+**Frontier detection** works in two passes (see [Appendix B](#appendix-b-bfs-reachability-algorithm-two-pass-frontier-detection)):
 - A BFS from the robot's grid cell collects all reachable free cells
-- Any free cell with **at least 2 unknown 8-connected neighbours** is marked as a frontier cell (stricter than the classic 1-neighbour definition — reduces noise from LiDAR speckle and map artifacts)
+- Any free cell with **at least 2 unknown 8-connected neighbours** is marked as a frontier cell (stricter than the classic 1-neighbour definition — reduces noise from LiDAR speckle and map artifacts, see [Appendix C](#appendix-c-frontier-detection-code))
 - Frontier cells are then clustered using 8-connectivity BFS into groups
 - Only clusters with **≥8 cells** are kept (`frontier_min_size = 8`), filtering out tiny noise clusters
 
-**Target selection** uses an **information gain heuristic**:
+**Target selection** uses an **information gain heuristic** (see [Appendix D](#appendix-d-information-gain-scoring)):
 - Each cluster is scored by `gain / distance^0.7`, where gain = cluster size (number of frontier cells)
 - This balances exploration efficiency (prefer large unexplored regions) with proximity (don't ignore nearby frontiers)
 - The cluster centroid is checked for obstacle clearance (3-cell wall clearance by default, relaxed to 2 then 0 if no valid targets found)
@@ -148,13 +148,13 @@ The `FrontierExplorer` node runs a 1-second timer loop (`explore_once`) that:
 
 **Blacklisting:** Goals that are rejected by Nav2 or time out (45-second watchdog for EXPLORE, 67.5s for ROAM) are added to a `failed_goals` set and skipped in future iterations. This prevents the robot from repeatedly attempting unreachable frontiers.
 
-**Empty frontier handling:** If no valid frontiers are detected, the node waits 3 seconds (to allow the SLAM map to update after arriving at a new position) and retries. After 3 consecutive empty checks, it declares frontiers exhausted and switches to ROAM mode.
+**Empty frontier handling:** If no valid frontiers are detected, the node waits 3 seconds (to allow the SLAM map to update after arriving at a new position) and retries. After 3 consecutive empty checks, it declares frontiers exhausted and switches to ROAM mode (see [Appendix E](#appendix-e-empty-frontier-retry-logic)).
 
 ### Roam Mode
 
 When all frontiers are exhausted but the mission is not yet complete (i.e. not all stations have been serviced), the supervisor transitions to `ROAM` mode. In this mode, the frontier node switches from structured frontier exploration to **reachability-based random navigation**:
 
-**Target selection in ROAM:**
+**Target selection in ROAM** (see [Appendix F](#appendix-f-roam-target-selection)):
 - Uses the same BFS reachability check as frontier detection to find all free cells the robot can actually reach
 - Filters candidates to cells at least 30 cells (~1.5m) away from the robot
 - Excludes cells within 10 cells (~0.5m) of previously visited roam goals (tracked in `roam_visited` set)
@@ -164,7 +164,7 @@ When all frontiers are exhausted but the mission is not yet complete (i.e. not a
 - Picks randomly from the **farthest 20%** of candidates to maximize coverage
 
 **Spin-to-scan behavior:**
-After reaching each roam goal (or getting within 0.5m of it), the robot performs a **360° spin** using the Nav2 `Spin` action. This gives the perception stack (`marker_mapper_node`) a full panoramic view to detect any station markers that may have been missed during initial exploration.
+After reaching each roam goal (or getting within 0.5m of it), the robot performs a **360° spin** using the Nav2 `Spin` action (see [Appendix G](#appendix-g-360-spin-after-roam-goal)). This gives the perception stack (`marker_mapper_node`) a full panoramic view to detect any station markers that may have been missed during initial exploration.
 
 **Bidirectional transition:**
 If new frontiers appear while roaming (e.g. after the SLAM map updates or the robot moves to a new vantage point), the frontier node **automatically switches back to EXPLORE mode**. This allows the robot to resume structured exploration if new areas become accessible.
@@ -221,3 +221,151 @@ Both costmaps use `inflation_radius: 0.15 m` and `cost_scaling_factor: 4.0`. Thi
 `vx_max: 0.3 m/s` in MPPI but capped to `0.15 m/s` by the velocity smoother. The velocity smoother acts as a final safety cap and smooths acceleration, preventing jerky starts. `wz_max: 1.2 rad/s` allows fast in-place rotation for frontier navigation.
 
 **`yaw_goal_tolerance: 6.28`** (effectively disabled) on the goal checker was a deliberate choice for frontier goals. Since the robot immediately re-evaluates the next frontier after arriving, precise heading at the goal is irrelevant and forcing a rotation wastes time.
+
+---
+
+## Appendices
+
+### Appendix A: TF Localization Lookup
+
+```python
+# Declared in __init__
+self.tf_buffer = Buffer()
+self.tf_listener = TransformListener(self.tf_buffer, self)
+
+# Used in update_robot_pose()
+try:
+    now = rclpy.time.Time()
+    trans = self.tf_buffer.lookup_transform(
+        'map', 'base_link', now, timeout=Duration(seconds=0.5)
+    )
+    self.robot_x = trans.transform.translation.x
+    self.robot_y = trans.transform.translation.y
+    q = trans.transform.rotation
+    _, _, self.robot_yaw = euler_from_quaternion(q.x, q.y, q.z, q.w)
+    return True
+except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException):
+    return False
+```
+
+### Appendix B: BFS Reachability Algorithm (Two-Pass Frontier Detection)
+
+```python
+# PASS 1: BFS to find all reachable free cells from robot position
+start = self.world_to_grid(self.robot_x, self.robot_y)
+reachable_free = set([start])
+q = deque([start])
+frontier_cells = set()
+
+while q:
+    r, c = q.popleft()
+    if self.cell_is_frontier(r, c):
+        frontier_cells.add((r, c))
+    for nr, nc in self.neighbors4(r, c):
+        if (nr, nc) not in reachable_free and self.is_free(nr, nc):
+            reachable_free.add((nr, nc))
+            q.append((nr, nc))
+
+# PASS 2: Cluster frontier cells using 8-connectivity BFS
+clusters = []
+unvisited = set(frontier_cells)
+while unvisited:
+    seed = unvisited.pop()
+    cluster = [seed]
+    fq = deque([seed])
+    while fq:
+        r, c = fq.popleft()
+        for nr, nc in self.neighbors8(r, c):
+            if (nr, nc) in unvisited:
+                unvisited.remove((nr, nc))
+                cluster.append((nr, nc))
+                fq.append((nr, nc))
+    if len(cluster) >= self.frontier_min_size:
+        clusters.append(cluster)
+```
+
+### Appendix C: Frontier Detection Code
+
+```python
+def cell_is_frontier(self, row: int, col: int) -> bool:
+    """A frontier cell is free and touches at least 2 unknown cells (reduces noise)."""
+    if not self.is_free(row, col):
+        return False
+    return sum(1 for nr, nc in self.neighbors8(row, col) if self.is_unknown(nr, nc)) >= 2
+```
+
+### Appendix D: Information Gain Scoring
+
+```python
+# Score each frontier cluster by information gain / distance ratio
+dist = max(1, abs(r_mean - rr) + abs(c_mean - rc))
+gain = len(cluster)
+score = gain / (dist ** 0.7)
+
+if score > best_score:
+    best_score = score
+    best_target = (r_mean, c_mean)
+```
+
+### Appendix E: Empty Frontier Retry Logic
+
+```python
+if not clusters:
+    self._empty_frontier_count += 1
+    self.get_logger().warn(
+        f"No frontiers detected ({self._empty_frontier_count}/{self.empty_frontier_retries}) "
+        f"— waiting {self.frontier_wait_s}s for map to update..."
+    )
+    self._cooldown_until = self.get_clock().now().nanoseconds / 1e9 + self.frontier_wait_s
+
+    if self._empty_frontier_count >= self.empty_frontier_retries:
+        self.get_logger().info("Frontiers exhausted → switching to ROAM")
+        self.exploration_done = True
+        self.current_mode = 'ROAM'
+        self.exhausted_pub.publish(Bool(data=True))
+```
+
+### Appendix F: Roam Target Selection
+
+```python
+# Filter reachable cells for roam targets
+candidates = [
+    (r, c) for r, c in reachable
+    if abs(r - rr) + abs(c - rc) >= 30
+    and (r, c) not in self.failed_goals
+    and not any(
+        self.is_occupied(r + dr, c + dc)
+        for dr in range(-clearance, clearance + 1)
+        for dc in range(-clearance, clearance + 1)
+    )
+    and not any(
+        abs(r - vr) + abs(c - vc) < self.roam_exclusion_radius
+        for vr, vc in self.roam_visited
+    )
+]
+
+# Pick from the farthest 20% to maximize coverage
+candidates.sort(key=lambda cell: abs(cell[0] - rr) + abs(cell[1] - rc), reverse=True)
+top_n = max(1, len(candidates) // 5)
+return candidates[np.random.randint(top_n)]
+```
+
+### Appendix G: 360° Spin After Roam Goal
+
+```python
+def _do_spin_360(self):
+    """Trigger a 360° spin via Nav2 Spin action after reaching a roam goal."""
+    if not self.spin_client.wait_for_server(timeout_sec=3.0):
+        self.get_logger().warn("Spin action server not available — skipping spin.")
+        self._navigating = False
+        return
+
+    spin_goal = Spin.Goal()
+    spin_goal.target_yaw = 2 * math.pi  # 360 degrees
+
+    self.get_logger().info("[ROAM] Spinning 360° to scan for markers.")
+    self._spinning = True
+    spin_future = self.spin_client.send_goal_async(spin_goal)
+    spin_future.add_done_callback(self._spin_response_cb)
+```
+
