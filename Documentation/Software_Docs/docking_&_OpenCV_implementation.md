@@ -50,36 +50,6 @@ This produced a heading error that was approximately:
 - **0 degrees** when the robot camera was facing the marker front-on
 - positive or negative when the robot was angled relative to the marker
 
-Mathematics:
-
-\[
-\mathbf{R} = \operatorname{Rodrigues}(\mathbf{rvec})
-\]
-
-The marker normal is the marker’s local z-axis expressed in the camera frame:
-
-\[
-\mathbf{n} =
-\begin{bmatrix}
-n_x \\
-n_y \\
-n_z
-\end{bmatrix}
-=
-\mathbf{R}[:,2]
-\]
-
-We then define the heading error as:
-
-\[
-\theta = \operatorname{atan2}(n_x,\ -n_z)
-\]
-
-This gives a heading error that is approximately:
-
-- \(\theta \approx 0\) when the camera is facing the marker head-on
-- \(\theta > 0\) or \(\theta < 0\) when the robot is angled relative to the marker
-
 ---
 
 # Final Custom FSM for Docking
@@ -186,13 +156,11 @@ If heading error > 10 degrees:
 2. compute heading error from the marker normal
 3. compute a lateral shift estimate using:
 
-\[
-\text{shift distance} = \tan(\theta)\times tz
-\]
+`shift distance = (tz) * (tan(theta))`
 
 where:
-- \(\theta\) is the heading error
-- \(tz\) is the forward marker distance
+- `theta` is the heading error
+- `tz` is the forward marker distance
 
 4. rotate by **90 degrees**
 5. move forward by the computed shift distance
@@ -206,9 +174,7 @@ The heading error represents how far the robot is angled relative to the marker 
 - angular misalignment is \(\theta\)
 - the estimated lateral correction is therefore approximately:
 
-\[
-x \approx tz \tan(\theta)
-\]
+``approx (tz) * (tan(theta))``
 
 This gives a more geometry-aware correction than simply shifting by a value derived from `tx`.
 
