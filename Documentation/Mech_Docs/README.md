@@ -1,8 +1,7 @@
 # Turtlebot Mechanical Documentation
 
-## Introduction
+## Problem description
 
-### Problem description
 For our mission, we are required to deposit **3 ping pong balls** each in the Stationary, Dynamic and Lift stations, with balls needing to be **deposited at specific intervals** at the Stationary station. Due to not knowing the distance at which our bot is from the stations (eg. due to obstacles, navigation restrictions), we have decided to **launch the balls** to deposit them in the stations.
 
 ### Overall design considerations
@@ -12,7 +11,7 @@ For our mission, we are required to deposit **3 ping pong balls** each in the St
 4. Any additions to the bot cannot block the Lidar sensor.
 5. The footprint of the bot is to be minimised, to allow for easier navigation through the course and ensure fitment into the lift.
 
-### Design Reasoning
+## Design Reasoning
 
 Through activity M2 (where we researched possible mechanisms for launching), we were most inspired by this launcher design (https://www.youtube.com/watch?v=63ebX_zi2_c). Hence, we decided to use a **single flywheel launching system**, actuated by a **single servo motor pusher arm**, where the ping pong balls are **gravity-fed and stored in a tube, wrapped around the bot**.
 
@@ -46,7 +45,7 @@ Gravity-fed feeding
 
 3. The mounting holes for the motor mount and barrel are slots, rather than holes. This allows for some flexibility in mounting and positioning to ensure full functionality of the bot.
 
-### Procurement and manufacturing of components
+## Procurement and manufacturing of components
 
 After reviewing the fabrication methods through activity M4, we decided to proceed with **3D printing** for its ability to create complex shapes, especially our barrel with its geometry and mounting points for some of the sensors and actuators. Considering the load our parts will be under, the structural strength of FDM 3D-printed PLA parts are sufficent given the geometry and scale. Should cost be a concern after creating the Bill of Materials, we could also fabricate parts with manual fabrication methods. For example, the barrel could be cut from a PVC pipe and glued to an acrylic plate to achieve a similar geometry to our barrel.
 
