@@ -265,6 +265,7 @@ The final success tolerances were:
 The gains used in the final fine docking implementation were:
 
 `self.kp_x = 2.5`
+`self.kp_z = 0.5`
 
 # Final Parameters Tuned
 
@@ -289,7 +290,6 @@ how often false or noisy detections triggered state transitions
 `target_x_tol_m`
 `target_z_m`
 `target_z_tol_m`
-`self.kp_z = 0.5`
 
 These determined:
 
