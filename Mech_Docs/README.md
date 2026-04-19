@@ -3,7 +3,7 @@
 ## Turtlebot Components
 
 ### Bill of Materials
-<img width="798" height="463" alt="image" src="https://github.com/user-attachments/assets/8c138b27-ef64-4fa1-a80b-8ac5e15a5e89" />
+<img width="800" height="558" alt="image" src="https://github.com/user-attachments/assets/7e24ff52-7505-4be4-a9c4-024a0499361c" />
 
 ### Printed Parts
 <img src="../Images/Barrel_solo.png" width="400" alt="Barrel">
@@ -11,7 +11,7 @@
 <p className="italic">Barrel</p>
 </div>
 
-<img src="../Images/flywheel.png" width="400" alt="Barrel">
+<img width="749" height="730" alt="image" src="https://github.com/user-attachments/assets/d8dd5176-e6f2-4c2a-8928-1e2e82c19bd8" />
 <div className="w-full flex items-center justify-center">
 <p className="italic">Flywheel</p>
 </div>
@@ -31,6 +31,10 @@
 <p className="italic">Camera Mount</p>
 </div>
 
+<img width="888" height="487" alt="image" src="https://github.com/user-attachments/assets/5ce46832-09a0-4a02-b0f5-ebb5e5999035" />
+<div className="w-full flex items-center justify-center">
+<p className="italic">Pusher Arm</p>
+</div>
 
 ## Assembly Instruction
 1. Before the firing assembly can be mounted on the turtlebot, the base Burger Turtlebot needs to be modified. 
