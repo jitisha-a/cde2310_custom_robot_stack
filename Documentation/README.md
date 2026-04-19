@@ -15,7 +15,7 @@ link to general docs
 # Con-Ops
 link to general docs
 
-Link to our Concept of Operations: [ConOps_Group_9.pdf](ConOps_Group_9.pdf)
+Link to our Concept of Operations: [ConOps_Group_9.pdf](General_Docs/ConOps_Group_9.pdf)
 
 # High level Design
 link to software docs
