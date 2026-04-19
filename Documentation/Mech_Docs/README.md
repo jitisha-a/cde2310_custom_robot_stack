@@ -3,7 +3,7 @@
 ## Turtlebot Components
 
 ### Bill of Materials
-<img width="800" height="558" alt="image" src="https://github.com/user-attachments/assets/7e24ff52-7505-4be4-a9c4-024a0499361c" />
+<img width="799" height="578" alt="image" src="https://github.com/user-attachments/assets/516c00b5-cc09-445e-91a8-6cca89e1db7f" />
 
 ### Printed Parts
 <img src="../Images/Barrel_solo.png" width="400" alt="Barrel">
