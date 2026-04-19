@@ -34,9 +34,11 @@ Station B (Dynamic Delivery): Track a moving target (sliding rail), synchronize 
 
 ### Final TurtleBot CAD Model
 
-<img src="Documentation/Images/Full_Cad_ISO.png" width="400">
+<img src="Documentation/Images/Full_Cad_ISO.png" width="500">
 
 ### Final TurtleBot Image
+
+<img src="Documentation/Images/turtlebot_image_real.png" width="500">
 
 ## Breakdown of repository
 
