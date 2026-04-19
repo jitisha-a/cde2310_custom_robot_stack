@@ -4,6 +4,6 @@ Architecturally, the system follows a modular node-based design coordinated by a
 
 ## Node Architecture Diagram
 
-![ROS2 node architecture diagram](./Images/Node_Architecture.png)
+![ROS2 node architecture diagram](Images/Node_Architecture.png)
 
 
