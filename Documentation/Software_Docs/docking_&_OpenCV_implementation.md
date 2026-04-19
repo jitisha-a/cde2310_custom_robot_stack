@@ -184,7 +184,7 @@ This gives a more geometry-aware correction than simply shifting by a value deri
 
 Below is an image to visualise this. Look at it from a 3D perspective in the z plane:
 
-<img src="../Images/dokcing_custom_math.png" width="300" height="500">
+<img src="../Images/docking_custom_math.png" width="300" height="500">
 
 ### Why we only do this once
 Single coarse correction was chosen because:
