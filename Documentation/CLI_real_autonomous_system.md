@@ -46,15 +46,14 @@ colcon build --packages-select cde2310_custom_robot_stack
 source install/setup.bash
 ```
 
-
-2. **rosbu / Bring up ROS on the TurtleBot3:**
+4. **rosbu / Bring up ROS on the TurtleBot3:**
 
 ```bash
 export TURTLEBOT3_MODEL=burger
 ros2 launch turtlebot3_bringup robot.launch.py
 ```
 
-3. **Launch RPI Camera Node:**
+5. **Launch RPI Camera Node:**
 
 Ensure your settings match your camera calibration specs.
 
@@ -65,11 +64,12 @@ ros2 run v4l2_camera v4l2_camera_node --ros-args \
   -p time_per_frame:=[1,30]
 ```
 
-4. **Launch the flywheel-launcher node for the stationary station:**
+6. **Launch the flywheel-launcher node for the stationary station:**
 ```bash
 ros2 run cde2310_custom_robot_stack stationary_launcher_hw_node.py
 ```
-5. **Launch the flywheel-launcher node for the dynamic station:**
+
+7. **Launch the flywheel-launcher node for the dynamic station:**
 ```bash
 ros2 run cde2310_custom_robot_stack dynamic_launcher_hw_node.py
 ```
