@@ -13,8 +13,8 @@
 
 ## Electrical and Electronics Diagrams
 
-This is an overview of the various electrical connections. The raspberry pi camera is not drawn in the image.
-<img src="../Images/connections_diagram.png" width="500" height="300">
+This is an overview of the various electrical connections.
+<img src="../Images/elec_connections.png" width="500" height="300">
 
 
 ## Systems Arcitecture 
