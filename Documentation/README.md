@@ -33,7 +33,8 @@ The README.md file there contains a detailed breakdown of the documentation divi
 # Testing Documentations
 
 Link to our Testing Codes: [Test_Codes](testing_codes)
-Link to our CLI on how to run them: [CLI_Tests](CLI_testing_system)
+
+Link to our CLI on how to run them: [CLI_Tests](CLI_testing_system.md)
 
 # User Manuals
 
