@@ -9,19 +9,25 @@ Instructions to run this package on a TurtleBot3: [CLI_real_autonomous_system.md
 
 Instructions to run test code for AruCo marker Detection and Gazebo simulation: [CLI_testing_system.md](CLI_testing_system.md)
 
-Requirement Specifications
+# Requirement Specifications
 link to general docs
-Con-Ops
+
+# Con-Ops
 link to general docs
-High level Design
+
+# High level Design
 link to software docs
-Sub System Design
+
+# Sub System Design
 link to elec sofwtare and mech docs
-Interface control documents
-link to md file
-Soft/Firmware Development Documentation
+
+# Soft/Firmware Development Documentation
 link to software docs
-Testing Documentations
+
+# Testing Documentations
 link to software docs
-User Manuals
+
+# User Manuals
 link to general docs
+
+[CDE2310 Group 9 User Guide](General_Docs/CDE2310%20Group%209%20User%20Guide.md)
