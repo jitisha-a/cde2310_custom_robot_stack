@@ -49,8 +49,18 @@
 - Install the motor to the motor mount.
 - Install mastic tape on the flywheel and install it onto the motor, making sure to fuse the ends together as much as possible.
 - Install the motor mount to the barrel.
-- Install the servo arm extension to the servo arm.
+- Install the servo pusher arm to the servo arm.
 - Install the servo to the barrel, being careful to position the arm so that it does not hit the wall of the barrel.
+
+<img src="../Images/Motor_and_mount.png" width="400" alt="Barrel">
+<div className="w-full flex items-center justify-center">
+<p className="italic">Motor and mount</p>
+</div>
+
+<img src="../Images/Motor_mount_flywheel.png" width="400" alt="Barrel">
+<div className="w-full flex items-center justify-center">
+<p className="italic">Motor Assembly</p>
+</div>
 
 <img src="../Images/Barrel_Iso.png" width="400" alt="Barrel">
 <div className="w-full flex items-center justify-center">
@@ -59,6 +69,11 @@
 
 3. Assemble the firing assembly to the Turtlebot
 - Install the barrel assembly to Turtlebot, lining up the mounting tabs between layers 2 and 3.
+
+<img src="../Images/Bot_layers.png" width="400" alt="Barrel">
+<div className="w-full flex items-center justify-center">
+<p className="italic">Turtlebot Layers</p>
+</div>
 
 4. Assembly of tube
 - Install the vacuum hose on the intake of the barrel and tighten the hose clamp.
