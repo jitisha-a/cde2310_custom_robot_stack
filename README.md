@@ -40,6 +40,8 @@ Station B (Dynamic Delivery): Track a moving target (sliding rail), synchronize 
 
 <img src="Documentation/Images/turtlebot_image_real.jpg" width="500">
 
+---
+
 ## Breakdown of repository
 
 This repository contains:
@@ -47,6 +49,8 @@ This repository contains:
 - Camera Calibration code [Link_to Steps_To_Run](Documentation/CLI_testing_system.md)
 - Testing code for OpenCV and Gazebo [Link_to Steps_To_Run](Documentation/CLI_testing_system.md)
 - Full technical documentation for this project [Link_to_Documentation_Breakdown](Documentation/README.md)
+
+---
 
 ## Youtube Link to Screen Recording of Remote Desktop During Final Run
 
