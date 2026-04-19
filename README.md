@@ -21,9 +21,10 @@
 
 This project designs and deploys an Autonomous Mobile Robot (AMR) to execute complex warehouse logistics. The system is a Turtlebot3 that can autonomously navigate an unknown environment, detect visual landmarks (AruCo markers), and execute precision payload deliveries without human intervention. Key Tasks:
 
-•Station A (Static Delivery): Detect static marker, dock, and dispense 3 balls in a specific timing
+Station A (Static Delivery): Detect static marker, dock, and dispense 3 balls in a specific timing
 sequence.
-•Station B (Dynamic Delivery): Track a moving target (sliding rail), synchronize speed, and dispense the
+
+Station B (Dynamic Delivery): Track a moving target (sliding rail), synchronize speed, and dispense the
 
 **Key Features of our TurtleBot**:
 - Autonomous SLAM navigation with ROS2
@@ -31,7 +32,10 @@ sequence.
 - OpenCV (Pose Estimation) for AruCo marker detection and precise docking through a custom FSM and P-controller
 - Custom-built Flywheel for delivering payload (balls)
 
----
+**Final TurtleBot CAD Model**
+<img src="../Images/Full_Cad_ISO.png" width="400">
+
+**Final TurtleBot Image**
 
 ## Breakdown of repository
 
