@@ -31,7 +31,9 @@ This is part of the software documentation folder: [Software_Docs](Software_Docs
 The README.md file there contains a detailed breakdown of the documentation division.
 
 # Testing Documentations
-link to software docs
+
+Link to our Testing Codes: [Test_Codes](testing_codes)
+Link to our CLI on how to run them: [CLI_Tests](CLI_testing_system)
 
 # User Manuals
 
