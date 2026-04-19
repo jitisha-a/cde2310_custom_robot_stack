@@ -30,4 +30,4 @@ link to software docs
 # User Manuals
 link to general docs
 
-[CDE2310 Group 9 User Guide](General_Docs/CDE2310%20Group%209%20User%20Guide.md)
+[CDE2310 Group 9 User Guide](General_Docs/CDE2310%20Group%209%20User%20Guide.pdf)
