@@ -24,9 +24,9 @@ Servo pusher arm mechanism
 - Acts as both a feed arm for the balls into the flywheels, as well as a stopper to prevent more than 1 ball from being fed at a time
 - Provides the range of motion required without the complexity of cams or gears
 
-Gravity-fed feeding
-- Remove points of failure vs spring loading
-- A flexible tube used to wrap around the Turtlebot to reduce bulk from a rigid tube
+Gravity-fed feeding system for ping pong balls
+- Remove points of failure vs a spring-loaded mechanism to load
+- A flexible tube used to wrap around the Turtlebot to reduce the bulk from a rigid tube
 - Length of 9 ping pong balls: 9x40mm= 320mm > Height/Length of the bot, hence the tube is wrapped around the bot to achieve a smaller footprint, as the tube cannot be vertical to block the Lidar sensor or sideways to ensure fitment into the lift.
 
 ### Additional design reasonings
